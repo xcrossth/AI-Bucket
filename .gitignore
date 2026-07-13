@@ -1,0 +1,104 @@
+# Dependencies and package-manager caches
+node_modules/
+.npm/
+.pnpm-store/
+.yarn/
+
+# Frontend build output
+dist/
+.vite/
+*.tsbuildinfo
+
+# Rust and Tauri build output
+target/
+src-tauri/target/
+src-tauri/gen/
+
+# Generated icons for platforms/build targets not shipped by this Windows project
+src-tauri/icons/android/
+src-tauri/icons/ios/
+src-tauri/icons/icon.icns
+src-tauri/icons/icon.png
+src-tauri/icons/64x64.png
+src-tauri/icons/app-icon.png
+src-tauri/icons/app-icon-source.png
+src-tauri/icons/Square*.png
+src-tauri/icons/StoreLogo.png
+src/assets/ai-bucket-mascot-source.png
+
+# Local environment and override files
+.env
+.env.*
+!.env.example
+*.local
+*.local.*
+tauri.local.conf.json
+src-tauri/tauri.local.conf.json
+
+# Credentials, tokens, certificates, and signing material
+auth.json
+credentials/
+*.credential
+*.pem
+*.key
+*.p12
+*.pfx
+*.cer
+*.crt
+*.mobileprovision
+
+# Local databases and application state
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.wal
+*.shm
+
+# Logs, diagnostics, and temporary files
+*.log
+logs/
+tmp/
+temp/
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*.stackdump
+
+# Release packages generated locally
+release/
+releases/
+artifacts/releases/
+artifacts/ai-bucket-desktop.png
+artifacts/ai-bucket-mobile.png
+*.msi
+*.msix
+*.appx
+*.appxbundle
+*.zip
+
+# Local project notes/specification (contains machine-specific research)
+ai-quota-checker-spec.md
+
+# Editors and operating systems
+.idea/
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.example.json
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Test and coverage output
+coverage/
+.nyc_output/
+lcov.info

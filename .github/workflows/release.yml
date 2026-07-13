@@ -1,0 +1,82 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  windows-release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Validate release version
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          $tauriVersion = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          $cargoVersion = (
+            Select-String -Path src-tauri/Cargo.toml -Pattern '^version = "([^"]+)"' |
+              Select-Object -First 1
+          ).Matches[0].Groups[1].Value
+          if ($version -ne $tauriVersion -or $version -ne $cargoVersion) {
+            throw "package.json, tauri.conf.json, and Cargo.toml versions must match."
+          }
+          if ("v$version" -ne "${{ github.ref_name }}") {
+            throw "Tag ${{ github.ref_name }} does not match package version v$version."
+          }
+
+      - name: Build installer and create GitHub Release
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: AI Bucket ${{ github.ref_name }}
+          releaseBody: |
+            Download the setup executable for the recommended installation, or the portable ZIP
+            to run AI Bucket without installing it. Both builds are currently unsigned.
+          releaseDraft: true
+          prerelease: false
+          args: --bundles nsis
+
+      - name: Package portable executable
+        id: portable
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          $zip = & ./scripts/package-portable.ps1 -Version $version -OutputDirectory $env:RUNNER_TEMP
+          $installer = Get-ChildItem "src-tauri/target/release/bundle/nsis/*-setup.exe" |
+            Select-Object -First 1
+          $checksum = Join-Path $env:RUNNER_TEMP "SHA256SUMS.txt"
+          @($installer.FullName, $zip) | ForEach-Object {
+            $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $_).Hash.ToLowerInvariant()
+            "$hash  $([IO.Path]::GetFileName($_))"
+          } | Set-Content -Encoding ascii -LiteralPath $checksum
+          "path=$zip" >> $env:GITHUB_OUTPUT
+          "checksum=$checksum" >> $env:GITHUB_OUTPUT
+
+      - name: Upload portable ZIP and publish release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.ref_name }}" `
+            "${{ steps.portable.outputs.path }}" `
+            "${{ steps.portable.outputs.checksum }}" `
+            --clobber
+          gh release edit "${{ github.ref_name }}" --draft=false
