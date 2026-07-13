@@ -35,6 +35,23 @@ consistent used-percentage gauges. It is not an API gateway and does not need to
 - Restore window position, size, and maximized state across launches.
 - Store API keys encrypted with Windows DPAPI and display only a masked value after saving.
 
+## Technology stack
+
+| Technology | Role | Why it was chosen |
+|---|---|---|
+| Tauri 2 | Windows desktop shell and native integration | Produces a small native executable, uses the system WebView2 runtime, and exposes only explicitly registered Rust commands to the UI. |
+| Rust | Provider collectors, local storage, credential handling, notifications, and window state | Provides strong type and memory safety for code that handles credentials and untrusted provider responses, without requiring a separate backend service. |
+| React 18 + TypeScript | Dashboard, account configuration, themes, and quota visualization | Keeps the card-based interface componentized while TypeScript makes provider and quota data contracts easier to maintain. |
+| Vite | Frontend development and production bundling | Offers fast hot reload during UI work and emits static assets that Tauri embeds into the release executable. |
+| SQLite + `rusqlite` | Account settings and the latest quota history | Gives the app a durable, transactional local database with no server process to install or keep running. |
+| Windows DPAPI | API-key encryption at rest | Binds encrypted credentials to the current Windows user instead of storing readable keys in config files. |
+| `reqwest` | Direct HTTPS calls to provider quota endpoints | Supplies a mature Rust HTTP client with timeouts and response validation while keeping provider requests inside the desktop process. |
+| dnd-kit + Lucide | Accessible card ordering and interface icons | Provides established interaction behavior and consistent icons without maintaining custom drag-and-drop or SVG implementations. |
+| GitHub Actions + NSIS | Validation and Windows release packaging | Repeats tests and builds in a clean environment, then publishes both an installer and a portable ZIP with SHA-256 checksums. |
+
+This combination keeps AI Bucket local-first: the React interface and Rust backend ship together
+as one desktop application, with no AI Bucket web server, proxy, or hosted control plane.
+
 ## Supported providers
 
 | Provider | Authentication | Quota source |
@@ -93,6 +110,17 @@ refreshes. This tolerance allows another client to consume a small amount before
 
 AI Bucket has no project server, telemetry service, or cloud database. Provider requests go
 directly from the desktop process to the configured provider endpoint.
+
+### No proxy, no added AI latency
+
+AI Bucket is an out-of-band quota viewer, not an AI proxy or API gateway. It never sits between
+your editor, CLI, or desktop client and an AI provider. Prompts, model responses, uploaded files,
+tool calls, and streaming tokens do not pass through AI Bucket, so the app cannot add latency to
+normal AI requests or become a bottleneck for them.
+
+The only network traffic initiated by AI Bucket is the small, independent request needed to read
+quota or usage metadata from each enabled provider when an account is refreshed. Closing AI
+Bucket does not interrupt or otherwise affect any AI client.
 
 Local data is stored under:
 
