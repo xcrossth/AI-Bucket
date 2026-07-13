@@ -62,10 +62,19 @@ jobs:
           $zip = & ./scripts/package-portable.ps1 -Version $version -OutputDirectory $env:RUNNER_TEMP
           $installer = Get-ChildItem "src-tauri/target/release/bundle/nsis/*-setup.exe" |
             Select-Object -First 1
+          $installerAssetName = gh api `
+            "repos/${{ github.repository }}/releases/tags/${{ github.ref_name }}" `
+            --jq '.assets[] | select(.name | endswith("setup.exe")) | .name'
+          if (!$installerAssetName) {
+            throw "Unable to find the uploaded installer asset."
+          }
           $checksum = Join-Path $env:RUNNER_TEMP "SHA256SUMS.txt"
-          @($installer.FullName, $zip) | ForEach-Object {
-            $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $_).Hash.ToLowerInvariant()
-            "$hash  $([IO.Path]::GetFileName($_))"
+          @(
+            @{ Path = $installer.FullName; Name = $installerAssetName },
+            @{ Path = $zip; Name = [IO.Path]::GetFileName($zip) }
+          ) | ForEach-Object {
+            $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.Path).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)"
           } | Set-Content -Encoding ascii -LiteralPath $checksum
           "path=$zip" >> $env:GITHUB_OUTPUT
           "checksum=$checksum" >> $env:GITHUB_OUTPUT
