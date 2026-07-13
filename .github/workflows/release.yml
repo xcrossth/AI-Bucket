@@ -57,6 +57,8 @@ jobs:
       - name: Package portable executable
         id: portable
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $version = (Get-Content package.json | ConvertFrom-Json).version
           $zip = & ./scripts/package-portable.ps1 -Version $version -OutputDirectory $env:RUNNER_TEMP
