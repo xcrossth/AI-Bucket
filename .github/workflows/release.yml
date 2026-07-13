@@ -57,19 +57,12 @@ jobs:
       - name: Package portable executable
         id: portable
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $version = (Get-Content package.json | ConvertFrom-Json).version
           $zip = & ./scripts/package-portable.ps1 -Version $version -OutputDirectory $env:RUNNER_TEMP
           $installer = Get-ChildItem "src-tauri/target/release/bundle/nsis/*-setup.exe" |
             Select-Object -First 1
-          $installerAssetName = gh api `
-            "repos/${{ github.repository }}/releases/tags/${{ github.ref_name }}" `
-            --jq '.assets[] | select(.name | endswith("setup.exe")) | .name'
-          if (!$installerAssetName) {
-            throw "Unable to find the uploaded installer asset."
-          }
+          $installerAssetName = $installer.Name -replace ' ', '.'
           $checksum = Join-Path $env:RUNNER_TEMP "SHA256SUMS.txt"
           @(
             @{ Path = $installer.FullName; Name = $installerAssetName },
