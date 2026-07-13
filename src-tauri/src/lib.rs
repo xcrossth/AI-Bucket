@@ -5,10 +5,11 @@ mod store;
 
 use std::{
     collections::HashMap,
+    fs,
     path::{Path, PathBuf},
     sync::{
         mpsc::{self, SyncSender},
-        Mutex,
+        Arc, Mutex,
     },
     thread,
     time::Duration,
@@ -16,7 +17,11 @@ use std::{
 
 use chrono::{DateTime, Utc};
 use rusqlite::Connection;
-use tauri::{AppHandle, Manager, State, WindowEvent};
+use serde::{Deserialize, Serialize};
+use tauri::{
+    AppHandle, Manager, PhysicalPosition, PhysicalSize, Position, Size, State, WebviewWindow,
+    WindowEvent,
+};
 use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 
 #[cfg(not(windows))]
@@ -42,6 +47,23 @@ struct AppState {
     db_path: Mutex<PathBuf>,
     credential_dir: Mutex<PathBuf>,
     notified_usage: Mutex<HashMap<(i64, String), u32>>,
+    layouts_path: PathBuf,
+    window_mode: Arc<Mutex<String>>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct WindowLayout {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    maximized: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct WindowLayouts {
+    normal: Option<WindowLayout>,
+    widget: Option<WindowLayout>,
 }
 
 fn now_iso() -> String {
@@ -81,7 +103,126 @@ fn window_exceeds_monitor(
     window_width > monitor_width || window_height > monitor_height
 }
 
-fn start_window_state_saver(app: AppHandle) -> SyncSender<()> {
+fn read_window_layouts(path: &Path) -> WindowLayouts {
+    fs::read(path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
+fn write_window_layouts(path: &Path, layouts: &WindowLayouts) -> Result<(), String> {
+    let bytes = serde_json::to_vec_pretty(layouts).map_err(|error| error.to_string())?;
+    fs::write(path, bytes).map_err(|error| error.to_string())
+}
+
+fn capture_window_layout(window: &WebviewWindow) -> Result<WindowLayout, String> {
+    let position = window.outer_position().map_err(|error| error.to_string())?;
+    let size = window.inner_size().map_err(|error| error.to_string())?;
+    Ok(WindowLayout {
+        x: position.x,
+        y: position.y,
+        width: size.width,
+        height: size.height,
+        maximized: window.is_maximized().map_err(|error| error.to_string())?,
+    })
+}
+
+fn save_mode_layout(window: &WebviewWindow, path: &Path, mode: &str) -> Result<(), String> {
+    let mut layouts = read_window_layouts(path);
+    let layout = capture_window_layout(window)?;
+    if mode == "widget" {
+        layouts.widget = Some(layout);
+    } else {
+        layouts.normal = Some(layout);
+    }
+    write_window_layouts(path, &layouts)
+}
+
+fn clamped_layout(
+    window: &WebviewWindow,
+    mut layout: WindowLayout,
+) -> Result<WindowLayout, String> {
+    let monitor = window
+        .current_monitor()
+        .map_err(|error| error.to_string())?
+        .or(window
+            .primary_monitor()
+            .map_err(|error| error.to_string())?);
+    if let Some(monitor) = monitor {
+        let origin = monitor.position();
+        let size = monitor.size();
+        layout.width = layout.width.min(size.width).max(360);
+        layout.height = layout.height.min(size.height).max(320);
+        let max_x = origin.x + size.width.saturating_sub(layout.width) as i32;
+        let max_y = origin.y + size.height.saturating_sub(layout.height) as i32;
+        layout.x = layout.x.clamp(origin.x, max_x);
+        layout.y = layout.y.clamp(origin.y, max_y);
+    }
+    Ok(layout)
+}
+
+fn restore_mode_layout(window: &WebviewWindow, path: &Path, mode: &str) -> Result<(), String> {
+    let layouts = read_window_layouts(path);
+    let saved = if mode == "widget" {
+        layouts.widget
+    } else {
+        layouts.normal
+    };
+    let fallback = if mode == "widget" {
+        let position = window.outer_position().map_err(|error| error.to_string())?;
+        WindowLayout {
+            x: position.x,
+            y: position.y,
+            width: 560,
+            height: 900,
+            maximized: false,
+        }
+    } else {
+        capture_window_layout(window)?
+    };
+    let layout = clamped_layout(window, saved.unwrap_or(fallback))?;
+    window.unmaximize().map_err(|error| error.to_string())?;
+    window
+        .set_size(Size::Physical(PhysicalSize::new(
+            layout.width,
+            layout.height,
+        )))
+        .map_err(|error| error.to_string())?;
+    window
+        .set_position(Position::Physical(PhysicalPosition::new(
+            layout.x, layout.y,
+        )))
+        .map_err(|error| error.to_string())?;
+    if mode == "normal" && layout.maximized {
+        window.maximize().map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+fn apply_window_mode(
+    window: &WebviewWindow,
+    layouts_path: &Path,
+    mode: &str,
+    always_on_top: bool,
+) -> Result<(), String> {
+    window
+        .set_decorations(mode != "widget")
+        .map_err(|error| error.to_string())?;
+    window
+        .set_shadow(mode != "widget")
+        .map_err(|error| error.to_string())?;
+    window
+        .set_always_on_top(mode == "widget" && always_on_top)
+        .map_err(|error| error.to_string())?;
+    restore_mode_layout(window, layouts_path, mode)
+}
+
+fn start_window_state_saver(
+    app: AppHandle,
+    window: WebviewWindow,
+    layouts_path: PathBuf,
+    mode: Arc<Mutex<String>>,
+) -> SyncSender<()> {
     let (sender, receiver) = mpsc::sync_channel(1);
     thread::spawn(move || {
         while receiver.recv().is_ok() {
@@ -90,10 +231,20 @@ fn start_window_state_saver(app: AppHandle) -> SyncSender<()> {
                     Ok(()) => continue,
                     Err(mpsc::RecvTimeoutError::Timeout) => {
                         let _ = app.save_window_state(window_state_flags());
+                        let current_mode = mode
+                            .lock()
+                            .map(|value| value.clone())
+                            .unwrap_or_else(|_| "normal".into());
+                        let _ = save_mode_layout(&window, &layouts_path, &current_mode);
                         break;
                     }
                     Err(mpsc::RecvTimeoutError::Disconnected) => {
                         let _ = app.save_window_state(window_state_flags());
+                        let current_mode = mode
+                            .lock()
+                            .map(|value| value.clone())
+                            .unwrap_or_else(|_| "normal".into());
+                        let _ = save_mode_layout(&window, &layouts_path, &current_mode);
                         return;
                     }
                 }
@@ -770,6 +921,7 @@ fn test_provider_alert(
 
 #[tauri::command]
 fn save_app_settings(
+    app: AppHandle,
     state: State<AppState>,
     patch: SettingsPatch,
 ) -> Result<DashboardState, String> {
@@ -797,14 +949,87 @@ fn save_app_settings(
             .unwrap_or(current.color_theme),
         size_theme: patch
             .size_theme
-            .filter(|value| matches!(value.as_str(), "compact" | "normal" | "large"))
+            .filter(|value| {
+                matches!(
+                    value.as_str(),
+                    "very_compact" | "compact" | "normal" | "large"
+                )
+            })
             .unwrap_or(current.size_theme),
         antigravity_two_column_quota: patch
             .antigravity_two_column_quota
             .unwrap_or(current.antigravity_two_column_quota),
+        window_mode: patch
+            .window_mode
+            .filter(|value| matches!(value.as_str(), "normal" | "widget"))
+            .unwrap_or(current.window_mode),
+        widget_opacity: patch
+            .widget_opacity
+            .map(|value| value.clamp(40, 100))
+            .unwrap_or(current.widget_opacity),
+        foreground_opacity_boost: patch
+            .foreground_opacity_boost
+            .map(|value| value.clamp(0, 30))
+            .unwrap_or(current.foreground_opacity_boost),
+        widget_always_on_top: patch
+            .widget_always_on_top
+            .unwrap_or(current.widget_always_on_top),
     };
     store::save_settings(&conn, &next)?;
+    if let Some(window) = app.get_webview_window("main") {
+        let previous_mode = state
+            .window_mode
+            .lock()
+            .map_err(|_| "Failed to lock window mode".to_string())?
+            .clone();
+        if previous_mode != next.window_mode {
+            save_mode_layout(&window, &state.layouts_path, &previous_mode)?;
+            apply_window_mode(
+                &window,
+                &state.layouts_path,
+                &next.window_mode,
+                next.widget_always_on_top,
+            )?;
+            *state
+                .window_mode
+                .lock()
+                .map_err(|_| "Failed to lock window mode".to_string())? = next.window_mode.clone();
+        } else {
+            window
+                .set_always_on_top(next.window_mode == "widget" && next.widget_always_on_top)
+                .map_err(|error| error.to_string())?;
+        }
+    }
     store::load_dashboard(&conn, &credentials_path)
+}
+
+#[tauri::command]
+fn start_window_drag(app: AppHandle) -> Result<(), String> {
+    app.get_webview_window("main")
+        .ok_or_else(|| "Main window is unavailable".to_string())?
+        .start_dragging()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn shutdown_app(app: AppHandle, state: State<AppState>) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("main") {
+        let mode = state
+            .window_mode
+            .lock()
+            .map_err(|_| "Failed to lock window mode".to_string())?
+            .clone();
+        save_mode_layout(&window, &state.layouts_path, &mode)?;
+        let _ = app.save_window_state(window_state_flags());
+    }
+    app.exit(0);
+    Ok(())
+}
+
+#[cfg(test)]
+fn layered_opacity(surface: i64, boost: i64) -> (i64, i64) {
+    let surface = surface.clamp(40, 100);
+    (surface, (surface + boost.clamp(0, 30)).min(100))
 }
 
 pub fn run() {
@@ -819,37 +1044,6 @@ pub fn run() {
         .setup(|app| {
             #[cfg(windows)]
             register_windows_notification_identity(app.handle())?;
-
-            let window_icon =
-                tauri::image::Image::from_bytes(include_bytes!("../icons/128x128@2x.png"))?;
-            if let Some(window) = app.get_webview_window("main") {
-                window.set_icon(window_icon)?;
-
-                let save_window_state = start_window_state_saver(app.handle().clone());
-                let save_after_change = save_window_state.clone();
-                window.on_window_event(move |event| {
-                    if matches!(event, WindowEvent::Moved(_) | WindowEvent::Resized(_)) {
-                        let _ = save_after_change.try_send(());
-                    }
-                });
-
-                let was_maximized = window.is_maximized()?;
-                let size = window.inner_size()?;
-                let monitor = window.current_monitor()?.or(app.primary_monitor()?);
-                let exceeds_monitor = monitor.is_some_and(|monitor| {
-                    let monitor_size = monitor.size();
-                    window_exceeds_monitor(
-                        size.width,
-                        size.height,
-                        monitor_size.width,
-                        monitor_size.height,
-                    )
-                });
-                if was_maximized || exceeds_monitor {
-                    window.maximize()?;
-                    let _ = save_window_state.try_send(());
-                }
-            }
 
             let app_dir = app
                 .path()
@@ -878,11 +1072,58 @@ pub fn run() {
                 &now_iso(),
                 &detected_local_providers,
             )?;
+            let settings = store::load_settings(&conn)?;
+            let layouts_path = app_dir.join("window-layouts.json");
+            let window_mode = Arc::new(Mutex::new(settings.window_mode.clone()));
             app.manage(AppState {
                 db_path: Mutex::new(db_path),
                 credential_dir: Mutex::new(credential_dir),
                 notified_usage: Mutex::new(HashMap::new()),
+                layouts_path: layouts_path.clone(),
+                window_mode: window_mode.clone(),
             });
+
+            let window_icon =
+                tauri::image::Image::from_bytes(include_bytes!("../icons/128x128@2x.png"))?;
+            if let Some(window) = app.get_webview_window("main") {
+                window.set_icon(window_icon)?;
+                apply_window_mode(
+                    &window,
+                    &layouts_path,
+                    &settings.window_mode,
+                    settings.widget_always_on_top,
+                )?;
+
+                let save_window_state = start_window_state_saver(
+                    app.handle().clone(),
+                    window.clone(),
+                    layouts_path,
+                    window_mode,
+                );
+                let save_after_change = save_window_state.clone();
+                window.on_window_event(move |event| {
+                    if matches!(event, WindowEvent::Moved(_) | WindowEvent::Resized(_)) {
+                        let _ = save_after_change.try_send(());
+                    }
+                });
+
+                let size = window.inner_size()?;
+                let monitor = window.current_monitor()?.or(app.primary_monitor()?);
+                let exceeds_monitor = monitor.is_some_and(|monitor| {
+                    let monitor_size = monitor.size();
+                    window_exceeds_monitor(
+                        size.width,
+                        size.height,
+                        monitor_size.width,
+                        monitor_size.height,
+                    )
+                });
+                if settings.window_mode == "normal" && exceeds_monitor {
+                    window.maximize()?;
+                    let _ = save_window_state.try_send(());
+                }
+                window.show()?;
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -893,7 +1134,9 @@ pub fn run() {
             reorder_provider_accounts,
             delete_provider_account,
             test_provider_alert,
-            save_app_settings
+            save_app_settings,
+            start_window_drag,
+            shutdown_app
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -902,6 +1145,15 @@ pub fn run() {
 #[cfg(test)]
 mod live_tests {
     use super::*;
+
+    #[test]
+    fn layered_opacity_clamps_surface_boost_and_content() {
+        assert_eq!(layered_opacity(40, 0), (40, 40));
+        assert_eq!(layered_opacity(50, 15), (50, 65));
+        assert_eq!(layered_opacity(90, 30), (90, 100));
+        assert_eq!(layered_opacity(100, 30), (100, 100));
+        assert_eq!(layered_opacity(20, -10), (40, 40));
+    }
 
     #[test]
     fn codex_usage_does_not_regress_inside_the_same_reset_window() {

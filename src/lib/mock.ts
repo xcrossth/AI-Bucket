@@ -176,7 +176,11 @@ function defaultState(): DashboardState {
       notificationsEnabled: true,
       colorTheme: "system",
       sizeTheme: "normal",
-      antigravityTwoColumnQuota: true
+      antigravityTwoColumnQuota: true,
+      windowMode: "normal",
+      widgetOpacity: 60,
+      foregroundOpacityBoost: 20,
+      widgetAlwaysOnTop: true
     }
   };
 }

@@ -65,8 +65,12 @@ export interface AppSettings {
   notificationThreshold: number;
   notificationsEnabled: boolean;
   colorTheme: "system" | "dark" | "light";
-  sizeTheme: "compact" | "normal" | "large";
+  sizeTheme: "very_compact" | "compact" | "normal" | "large";
   antigravityTwoColumnQuota: boolean;
+  windowMode: "normal" | "widget";
+  widgetOpacity: number;
+  foregroundOpacityBoost: number;
+  widgetAlwaysOnTop: boolean;
 }
 
 export interface DashboardState {

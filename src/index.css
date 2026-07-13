@@ -8,6 +8,8 @@
   --border: #273244;
   --ink: #e5eefb;
   --muted: #93a4bd;
+  --widget-surface-opacity: 1;
+  --widget-content-opacity: 1;
   color: #e5eefb;
   background: #020617;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -15,6 +17,10 @@
 
 :root[data-size-theme="compact"] {
   font-size: 14px;
+}
+
+:root[data-size-theme="very_compact"] {
+  font-size: 13px;
 }
 
 :root[data-size-theme="normal"] {
@@ -55,6 +61,156 @@ body {
 
 :root[data-color-theme="light"] body {
   background: #f8fafc;
+}
+
+:root[data-window-mode="widget"],
+:root[data-window-mode="widget"] body,
+:root[data-window-mode="widget"] #root {
+  background: transparent;
+}
+
+:root[data-window-mode="widget"] body {
+  background-color: color-mix(
+    in srgb,
+    #020617 calc(var(--widget-surface-opacity) * 100%),
+    transparent
+  );
+}
+
+:root[data-window-mode="widget"][data-color-theme="light"] body {
+  background-color: color-mix(
+    in srgb,
+    #f8fafc calc(var(--widget-surface-opacity) * 100%),
+    transparent
+  );
+}
+
+:root[data-window-mode="widget"] .widget-surface {
+  background-color: color-mix(
+    in srgb,
+    var(--panel) calc(var(--widget-surface-opacity) * 100%),
+    transparent
+  );
+  border-color: color-mix(
+    in srgb,
+    var(--border) calc(var(--widget-surface-opacity) * 100%),
+    transparent
+  );
+  box-shadow: 0 16px 32px rgb(0 0 0 / calc(var(--widget-surface-opacity) * 0.24));
+}
+
+:root[data-window-mode="widget"] .widget-content {
+  opacity: var(--widget-content-opacity);
+}
+
+:root[data-window-mode="widget"] .widget-control {
+  opacity: var(--widget-surface-opacity);
+}
+
+:root[data-window-mode="widget"] .app-layout {
+  height: 100vh;
+  min-height: 0;
+}
+
+:root[data-window-mode="widget"] body {
+  overflow: hidden;
+}
+
+:root[data-window-mode="widget"] .widget-scroll-content {
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+:root[data-size-theme="very_compact"] .app-layout {
+  gap: 0.5rem !important;
+  padding: 0.5rem !important;
+}
+
+:root[data-size-theme="very_compact"] .provider-card-grid {
+  gap: 0.5rem !important;
+}
+
+:root[data-size-theme="very_compact"] .provider-card {
+  gap: 0.625rem !important;
+  padding: 0.625rem !important;
+}
+
+:root[data-size-theme="very_compact"] .provider-card-header {
+  gap: 0.5rem !important;
+}
+
+:root[data-size-theme="very_compact"] .provider-logo {
+  width: 2.25rem;
+  height: 2.25rem;
+}
+
+:root[data-size-theme="very_compact"] .provider-logo-image {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+:root[data-size-theme="very_compact"] .provider-quota-list {
+  column-gap: 0.5rem !important;
+  row-gap: 0.5rem !important;
+}
+
+:root[data-size-theme="very_compact"] .provider-quota-list.space-y-4 > :not([hidden]) ~ :not([hidden]) {
+  margin-top: 0.5rem;
+}
+
+:root[data-size-theme="very_compact"] .provider-quota.space-y-2 > :not([hidden]) ~ :not([hidden]) {
+  margin-top: 0.25rem;
+}
+
+:root[data-size-theme="very_compact"] .app-shell .gap-6 {
+  gap: 0.75rem;
+}
+
+:root[data-size-theme="very_compact"] .app-shell .gap-5,
+:root[data-size-theme="very_compact"] .app-shell .gap-4 {
+  gap: 0.625rem;
+}
+
+:root[data-size-theme="very_compact"] .app-shell .gap-3 {
+  gap: 0.5rem;
+}
+
+:root[data-size-theme="very_compact"] .app-shell .p-5,
+:root[data-size-theme="very_compact"] .app-shell .p-4 {
+  padding: 0.625rem;
+}
+
+:root[data-size-theme="very_compact"] .app-shell .p-3 {
+  padding: 0.5rem;
+}
+
+:root[data-size-theme="very_compact"] .app-shell .px-4,
+:root[data-size-theme="very_compact"] .app-shell .px-3 {
+  padding-right: 0.625rem;
+  padding-left: 0.625rem;
+}
+
+:root[data-size-theme="very_compact"] .app-shell .py-6,
+:root[data-size-theme="very_compact"] .app-shell .py-5,
+:root[data-size-theme="very_compact"] .app-shell .py-4,
+:root[data-size-theme="very_compact"] .app-shell .py-3 {
+  padding-top: 0.625rem;
+  padding-bottom: 0.625rem;
+}
+
+:root[data-size-theme="very_compact"] .app-shell .space-y-5 > :not([hidden]) ~ :not([hidden]),
+:root[data-size-theme="very_compact"] .app-shell .space-y-4 > :not([hidden]) ~ :not([hidden]) {
+  margin-top: 0.625rem;
+}
+
+:root[data-size-theme="very_compact"] .app-shell .space-y-3 > :not([hidden]) ~ :not([hidden]) {
+  margin-top: 0.5rem;
+}
+
+@media (min-width: 900px) {
+  :root[data-window-mode="widget"] .widget-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .bg-panel {
@@ -240,10 +396,26 @@ input {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #243244;
+  background: transparent;
   border-radius: 999px;
 }
 
-:root[data-color-theme="light"] ::-webkit-scrollbar-thumb {
+:root[data-scrollbar-visible="true"] ::-webkit-scrollbar-thumb {
+  background: #243244;
+}
+
+:root[data-color-theme="light"][data-scrollbar-visible="true"] ::-webkit-scrollbar-thumb {
   background: #a8b5c5;
+}
+
+:root[data-window-mode="widget"] ::-webkit-scrollbar {
+  width: 8px;
+}
+
+:root[data-window-mode="widget"][data-scrollbar-visible="true"] ::-webkit-scrollbar-thumb {
+  background: color-mix(
+    in srgb,
+    #64748b calc(var(--widget-surface-opacity) * 100%),
+    transparent
+  );
 }

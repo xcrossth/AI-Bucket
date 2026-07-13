@@ -5,6 +5,7 @@ import {
   Eye,
   EyeOff,
   Laptop,
+  Minimize2,
   Moon,
   Pencil,
   Plus,
@@ -311,7 +312,8 @@ export function SettingsPanel({
 
         <div className="space-y-5 rounded-lg border border-slate-800 bg-slate-950/40 p-4">
           <SegmentSetting label="Color theme" value={settings.colorTheme} options={[["system", "System", Laptop], ["dark", "Dark", Moon], ["light", "Light", Sun]]} onChange={(colorTheme) => onSaveSettings({ colorTheme })} />
-          <SegmentSetting label="Interface size" value={settings.sizeTheme} options={[["compact", "Compact", Shrink], ["normal", "Normal", Laptop], ["large", "Large", Expand]]} onChange={(sizeTheme) => onSaveSettings({ sizeTheme })} />
+          <SegmentSetting label="Interface size" value={settings.sizeTheme} options={[["very_compact", "Very Compact", Minimize2], ["compact", "Compact", Shrink], ["normal", "Normal", Laptop], ["large", "Large", Expand]]} onChange={(sizeTheme) => onSaveSettings({ sizeTheme })} />
+          <WidgetAppearanceSettings settings={settings} onSaveSettings={onSaveSettings} className="border-t border-slate-800 pt-4" />
           <ToggleRange label="Auto refresh" enabled={settings.autoRefreshEnabled} onToggle={() => onSaveSettings({ autoRefreshEnabled: !settings.autoRefreshEnabled })} valueLabel={`Every ${formatRelativeMinutes(settings.refreshIntervalMinutes)}`} value={settings.refreshIntervalMinutes} min={2} max={60} step={2} minLabel="2m" maxLabel="60m" onChange={(refreshIntervalMinutes) => onSaveSettings({ refreshIntervalMinutes })} />
           <ToggleRange label="Notifications" enabled={settings.notificationsEnabled} onToggle={() => onSaveSettings({ notificationsEnabled: !settings.notificationsEnabled })} valueLabel={`Alert at ${settings.notificationThreshold}% used`} value={settings.notificationThreshold} min={50} max={95} step={5} minLabel="50%" maxLabel="95%" onChange={(notificationThreshold) => onSaveSettings({ notificationThreshold })} />
         </div>
@@ -378,8 +380,26 @@ export function SettingsPanel({
   );
 }
 
+export function WidgetAppearanceSettings({ settings, onSaveSettings, className = "" }: { settings: AppSettings; onSaveSettings: (patch: Partial<AppSettings>) => Promise<void>; className?: string }) {
+  return <div className={`space-y-4 ${className}`}>
+    <div className="widget-content">
+      <h3 className="m-0 text-sm font-medium text-slate-300">Widget appearance</h3>
+      <p className="m-0 mt-1 text-xs text-slate-500">
+        Background {settings.widgetOpacity}% / Content {Math.min(100, settings.widgetOpacity + settings.foregroundOpacityBoost)}%
+      </p>
+    </div>
+    <RangeSetting label="Window opacity" value={settings.widgetOpacity} min={40} max={100} step={1} minLabel="40%" maxLabel="100%" onChange={(widgetOpacity) => onSaveSettings({ widgetOpacity })} />
+    <RangeSetting label="Content opacity boost" value={settings.foregroundOpacityBoost} min={0} max={30} step={1} minLabel="0%" maxLabel="30%" onChange={(foregroundOpacityBoost) => onSaveSettings({ foregroundOpacityBoost })} />
+    <label className="widget-surface flex items-center justify-between gap-3 rounded-md border border-slate-800 bg-slate-950 px-3 py-3 text-sm text-slate-300">
+      <span className="widget-content"><span className="block font-medium">Keep widget on top</span><span className="mt-1 block text-xs text-slate-500">Keep Widget mode above other windows</span></span>
+      <input type="checkbox" checked={settings.widgetAlwaysOnTop} onChange={(event) => onSaveSettings({ widgetAlwaysOnTop: event.target.checked })} className="widget-control h-4 w-4" />
+    </label>
+  </div>;
+}
+
 function SegmentSetting<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: readonly (readonly [T, string, typeof Laptop])[]; onChange: (value: T) => void }) {
-  return <div><label className="mb-2 block text-sm text-slate-300">{label}</label><div className="grid grid-cols-3 rounded-md border border-slate-700 bg-slate-950 p-1">{options.map(([option, text, Icon]) => <button key={option} type="button" onClick={() => onChange(option)} className={`inline-flex items-center justify-center gap-1.5 rounded px-2 py-2 text-xs ${value === option ? "bg-slate-700 text-white" : "text-slate-400 hover:bg-slate-800 hover:text-white"}`}><Icon className="h-3.5 w-3.5" />{text}</button>)}</div></div>;
+  const columnClass = options.length === 4 ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-3";
+  return <div><label className="mb-2 block text-sm text-slate-300">{label}</label><div className={`grid ${columnClass} rounded-md border border-slate-700 bg-slate-950 p-1`}>{options.map(([option, text, Icon]) => <button key={option} type="button" onClick={() => onChange(option)} className={`inline-flex min-w-0 items-center justify-center gap-1.5 rounded px-2 py-2 text-center text-xs ${value === option ? "bg-slate-700 text-white" : "text-slate-400 hover:bg-slate-800 hover:text-white"}`}><Icon className="h-3.5 w-3.5 shrink-0" /><span>{text}</span></button>)}</div></div>;
 }
 
 function AlertAccountSetting({ label, description, checked, onChange, onTest, testDisabled }: { label: string; description: string; checked: boolean; onChange: (checked: boolean) => void; onTest: () => Promise<void>; testDisabled: boolean }) {
@@ -387,5 +407,9 @@ function AlertAccountSetting({ label, description, checked, onChange, onTest, te
 }
 
 function ToggleRange({ label, enabled, onToggle, valueLabel, value, min, max, step, minLabel, maxLabel, onChange }: { label: string; enabled: boolean; onToggle: () => void; valueLabel: string; value: number; min: number; max: number; step: number; minLabel: string; maxLabel: string; onChange: (value: number) => void }) {
-  return <div className="space-y-3 border-t border-slate-800 pt-4"><div className="flex items-center justify-between"><label className="text-sm font-medium text-slate-300">{label}</label><button type="button" onClick={onToggle} className={`rounded-md px-2.5 py-1.5 text-xs font-medium ${enabled ? "bg-emerald-500/20 text-emerald-300" : "bg-slate-800 text-slate-300"}`}>{enabled ? "On" : "Off"}</button></div><label className="block text-xs text-slate-400">{valueLabel}</label><input type="range" min={min} max={max} step={step} value={value} disabled={!enabled} onChange={(event) => onChange(Number(event.target.value))} className="range-control w-full" /><div className="flex justify-between text-xs text-slate-500"><span>{minLabel}</span><span>{maxLabel}</span></div></div>;
+  return <div className="space-y-3 border-t border-slate-800 pt-4"><div className="flex items-center justify-between"><label className="text-sm font-medium text-slate-300">{label}</label><button type="button" onClick={onToggle} className={`rounded-md px-2.5 py-1.5 text-xs font-medium ${enabled ? "bg-emerald-500/20 text-emerald-300" : "bg-slate-800 text-slate-300"}`}>{enabled ? "On" : "Off"}</button></div><label className="block text-xs text-slate-400">{valueLabel}</label><input aria-label={`${label} value`} type="range" min={min} max={max} step={step} value={value} disabled={!enabled} onChange={(event) => onChange(Number(event.target.value))} className="range-control w-full" /><div className="flex justify-between text-xs text-slate-500"><span>{minLabel}</span><span>{maxLabel}</span></div></div>;
+}
+
+function RangeSetting({ label, value, min, max, step, minLabel, maxLabel, onChange }: { label: string; value: number; min: number; max: number; step: number; minLabel: string; maxLabel: string; onChange: (value: number) => void }) {
+  return <div className="space-y-2"><div className="widget-content flex items-center justify-between gap-3 text-xs"><label className="text-slate-400">{label}</label><span className="font-medium text-slate-300">{value}%</span></div><input aria-label={label} type="range" min={min} max={max} step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} className="widget-control range-control w-full" /><div className="widget-content flex justify-between text-xs text-slate-500"><span>{minLabel}</span><span>{maxLabel}</span></div></div>;
 }

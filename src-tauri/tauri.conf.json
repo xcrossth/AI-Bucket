@@ -16,7 +16,9 @@
         "width": 1440,
         "height": 980,
         "visible": false,
-        "resizable": true
+        "resizable": true,
+        "transparent": true,
+        "shadow": false
       }
     ]
   },

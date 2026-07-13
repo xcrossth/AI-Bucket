@@ -19,6 +19,10 @@ fn default_settings() -> AppSettings {
         color_theme: "system".into(),
         size_theme: "normal".into(),
         antigravity_two_column_quota: true,
+        window_mode: "normal".into(),
+        widget_opacity: 60,
+        foreground_opacity_boost: 20,
+        widget_always_on_top: true,
     }
 }
 
@@ -221,6 +225,10 @@ pub fn init_db(
             notification_threshold INTEGER NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS app_migrations (
+            migration_key TEXT PRIMARY KEY
+        );
+
         CREATE TABLE IF NOT EXISTS provider_snapshots_v2 (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             provider TEXT NOT NULL,
@@ -269,6 +277,39 @@ pub fn init_db(
         [],
     );
     let _ = conn.execute(
+        "ALTER TABLE app_settings ADD COLUMN window_mode TEXT NOT NULL DEFAULT 'normal'",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE app_settings ADD COLUMN widget_opacity INTEGER NOT NULL DEFAULT 60",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE app_settings ADD COLUMN foreground_opacity_boost INTEGER NOT NULL DEFAULT 20",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE app_settings ADD COLUMN widget_always_on_top INTEGER NOT NULL DEFAULT 1",
+        [],
+    );
+    let registered_new_widget_defaults = conn
+        .execute(
+            "INSERT OR IGNORE INTO app_migrations (migration_key) VALUES ('widget-defaults-60-20-on')",
+            [],
+        )
+        .map_err(|error| error.to_string())?;
+    if registered_new_widget_defaults == 1 {
+        conn.execute(
+            "UPDATE app_settings
+             SET widget_opacity = 60, foreground_opacity_boost = 20, widget_always_on_top = 1
+             WHERE widget_opacity = 90
+               AND foreground_opacity_boost = 0
+               AND widget_always_on_top = 0",
+            [],
+        )
+        .map_err(|error| error.to_string())?;
+    }
+    let _ = conn.execute(
         "ALTER TABLE provider_snapshots_v2 ADD COLUMN account_id INTEGER",
         [],
     );
@@ -308,8 +349,9 @@ pub fn init_db(
     conn.execute(
         "INSERT OR IGNORE INTO app_settings
          (id, auto_refresh_enabled, refresh_interval_minutes, notification_threshold,
-          color_theme, size_theme, antigravity_two_column_quota, notifications_enabled)
-         VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+          color_theme, size_theme, antigravity_two_column_quota, notifications_enabled,
+          window_mode, widget_opacity, foreground_opacity_boost, widget_always_on_top)
+         VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         params![
             settings.auto_refresh_enabled as i64,
             settings.refresh_interval_minutes,
@@ -317,7 +359,11 @@ pub fn init_db(
             settings.color_theme,
             settings.size_theme,
             settings.antigravity_two_column_quota as i64,
-            settings.notifications_enabled as i64
+            settings.notifications_enabled as i64,
+            settings.window_mode,
+            settings.widget_opacity,
+            settings.foreground_opacity_boost,
+            settings.widget_always_on_top as i64
         ],
     )
     .map_err(|error| error.to_string())?;
@@ -511,7 +557,8 @@ pub fn latest_snapshot(conn: &Connection, account_id: i64) -> Result<ProviderSna
 pub fn load_settings(conn: &Connection) -> Result<AppSettings, String> {
     conn.query_row(
         "SELECT auto_refresh_enabled, refresh_interval_minutes, notification_threshold,
-                color_theme, size_theme, antigravity_two_column_quota, notifications_enabled
+                color_theme, size_theme, antigravity_two_column_quota, notifications_enabled,
+                window_mode, widget_opacity, foreground_opacity_boost, widget_always_on_top
          FROM app_settings WHERE id = 1",
         [],
         |row| {
@@ -523,6 +570,10 @@ pub fn load_settings(conn: &Connection) -> Result<AppSettings, String> {
                 size_theme: row.get(4)?,
                 antigravity_two_column_quota: row.get::<_, i64>(5)? != 0,
                 notifications_enabled: row.get::<_, i64>(6)? != 0,
+                window_mode: row.get(7)?,
+                widget_opacity: row.get(8)?,
+                foreground_opacity_boost: row.get(9)?,
+                widget_always_on_top: row.get::<_, i64>(10)? != 0,
             })
         },
     )
@@ -534,7 +585,9 @@ pub fn save_settings(conn: &Connection, settings: &AppSettings) -> Result<(), St
         "UPDATE app_settings SET auto_refresh_enabled = ?1,
          refresh_interval_minutes = ?2, notification_threshold = ?3,
          color_theme = ?4, size_theme = ?5,
-         antigravity_two_column_quota = ?6, notifications_enabled = ?7 WHERE id = 1",
+         antigravity_two_column_quota = ?6, notifications_enabled = ?7,
+         window_mode = ?8, widget_opacity = ?9, foreground_opacity_boost = ?10,
+         widget_always_on_top = ?11 WHERE id = 1",
         params![
             settings.auto_refresh_enabled as i64,
             settings.refresh_interval_minutes,
@@ -542,7 +595,11 @@ pub fn save_settings(conn: &Connection, settings: &AppSettings) -> Result<(), St
             settings.color_theme,
             settings.size_theme,
             settings.antigravity_two_column_quota as i64,
-            settings.notifications_enabled as i64
+            settings.notifications_enabled as i64,
+            settings.window_mode,
+            settings.widget_opacity,
+            settings.foreground_opacity_boost,
+            settings.widget_always_on_top as i64
         ],
     )
     .map_err(|error| error.to_string())?;
@@ -830,5 +887,58 @@ mod tests {
         assert_eq!(configs[0].provider, "claude");
         assert_eq!(configs[0].custom_name, "Local Config");
         assert_eq!(configs[1].provider, "openai");
+        let settings = load_settings(&connection).expect("default settings");
+        assert_eq!(settings.window_mode, "normal");
+        assert_eq!(settings.widget_opacity, 60);
+        assert_eq!(settings.foreground_opacity_boost, 20);
+        assert!(settings.widget_always_on_top);
+    }
+
+    #[test]
+    fn old_widget_defaults_are_migrated_once_without_overwriting_later_choices() {
+        let connection = Connection::open_in_memory().expect("in-memory database");
+        connection
+            .execute_batch(
+                "CREATE TABLE app_settings (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    auto_refresh_enabled INTEGER NOT NULL,
+                    refresh_interval_minutes INTEGER NOT NULL,
+                    notification_threshold INTEGER NOT NULL,
+                    color_theme TEXT NOT NULL,
+                    size_theme TEXT NOT NULL,
+                    antigravity_two_column_quota INTEGER NOT NULL,
+                    notifications_enabled INTEGER NOT NULL,
+                    window_mode TEXT NOT NULL,
+                    widget_opacity INTEGER NOT NULL,
+                    foreground_opacity_boost INTEGER NOT NULL,
+                    widget_always_on_top INTEGER NOT NULL
+                );
+                INSERT INTO app_settings VALUES
+                    (1, 1, 10, 80, 'system', 'normal', 1, 1, 'normal', 90, 0, 0);",
+            )
+            .expect("legacy settings");
+        let credential_dir = std::env::temp_dir().join(format!(
+            "ai-bucket-widget-migration-test-{}",
+            std::process::id()
+        ));
+
+        init_db(&connection, &credential_dir, "2026-07-13T00:00:00Z", &[])
+            .expect("first migration");
+        let migrated = load_settings(&connection).expect("migrated settings");
+        assert_eq!(migrated.widget_opacity, 60);
+        assert_eq!(migrated.foreground_opacity_boost, 20);
+        assert!(migrated.widget_always_on_top);
+
+        let mut later_choice = migrated;
+        later_choice.widget_opacity = 90;
+        later_choice.foreground_opacity_boost = 0;
+        later_choice.widget_always_on_top = false;
+        save_settings(&connection, &later_choice).expect("save later choice");
+        init_db(&connection, &credential_dir, "2026-07-13T00:00:00Z", &[])
+            .expect("second bootstrap");
+        let preserved = load_settings(&connection).expect("preserved settings");
+        assert_eq!(preserved.widget_opacity, 90);
+        assert_eq!(preserved.foreground_opacity_boost, 0);
+        assert!(!preserved.widget_always_on_top);
     }
 }

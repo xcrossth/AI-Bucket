@@ -48,7 +48,7 @@ function StatusBadge({ provider }: { provider: ProviderSnapshot }) {
 
   return (
     <span
-      className="cursor-help rounded-full border border-slate-700 px-2.5 py-1 text-xs text-slate-300"
+      className="widget-content cursor-help rounded-full border border-slate-700 px-2.5 py-1 text-xs text-slate-300"
       title={provider.notes}
       tabIndex={0}
     >
@@ -74,41 +74,41 @@ export function ProviderCard({
     <article
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition, zIndex: isDragging ? 20 : undefined }}
-      className={`relative flex h-full flex-col gap-5 rounded-lg border border-border bg-panel p-5 shadow-soft ${isDragging ? "opacity-70 shadow-2xl" : ""}`}
+      className={`provider-card widget-surface relative flex h-full flex-col gap-5 rounded-lg border border-border bg-panel p-5 shadow-soft ${isDragging ? "opacity-70 shadow-2xl" : ""}`}
     >
-      <button
-        type="button"
-        title="Drag to reorder"
-        aria-label={`Drag ${provider.providerName} to reorder`}
-        {...attributes}
-        {...listeners}
-        className="absolute left-1 top-1 inline-flex h-5 w-5 touch-none items-center justify-center cursor-grab rounded text-slate-500 hover:bg-slate-800 hover:text-white active:cursor-grabbing"
-      >
-        <GripVertical className="h-3.5 w-3.5" />
-      </button>
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-slate-700 bg-slate-950 text-white">
-            <div className="h-7 w-7 [&>svg]:h-full [&>svg]:w-full">
+      <div className="provider-card-header flex items-start justify-between gap-4">
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="provider-logo widget-content flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-slate-700 bg-slate-950 text-white">
+            <div className="provider-logo-image h-7 w-7 [&>svg]:h-full [&>svg]:w-full">
               <ProviderIcon provider={provider.provider} />
             </div>
           </div>
-          <div>
+          <button
+            type="button"
+            title="Drag to reorder"
+            aria-label={`Drag ${provider.providerName} to reorder`}
+            {...attributes}
+            {...listeners}
+            className="widget-control inline-flex h-7 w-6 shrink-0 touch-none cursor-grab items-center justify-center rounded text-slate-500 hover:bg-slate-800 hover:text-white active:cursor-grabbing"
+          >
+            <GripVertical className="h-4 w-4" />
+          </button>
+          <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <h2 className="m-0 text-lg font-semibold text-ink">{provider.providerName}</h2>
-              {isWarning ? <TriangleAlert className="h-4 w-4 text-amber-400" /> : null}
+              <h2 className="widget-content m-0 text-lg font-semibold text-ink">{provider.providerName}</h2>
+              {isWarning ? <TriangleAlert className="widget-content h-4 w-4 text-amber-400" /> : null}
               <button
                 type="button"
                 onClick={onRefresh}
                 disabled={refreshing}
                 title={`Refresh ${provider.providerName}`}
                 aria-label={`Refresh ${provider.providerName}`}
-                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                className="widget-control inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
               </button>
             </div>
-            <p className="m-0 mt-1 text-sm text-slate-400">
+            <p className="widget-content m-0 mt-1 text-sm text-slate-400">
               {provider.customName ? `${provider.customName} - ${provider.planName}` : provider.planName}
             </p>
           </div>
@@ -116,9 +116,9 @@ export function ProviderCard({
         <StatusBadge provider={provider} />
       </div>
 
-      <div className={twoColumnQuota ? "grid grid-cols-2 gap-x-4 gap-y-4" : "space-y-4"}>
+      <div className={`provider-quota-list ${twoColumnQuota ? "grid grid-cols-2 gap-x-4 gap-y-4" : "space-y-4"}`}>
         {provider.limits.length > 0 ? provider.limits.map((limit) => (
-          <section key={limit.id} className="space-y-2">
+          <section key={limit.id} className="provider-quota widget-content space-y-2">
             <div className="flex items-start justify-between gap-2">
               <span className="min-w-0 text-sm leading-snug text-slate-300">{limit.label}</span>
               <span className="shrink-0 whitespace-nowrap text-sm font-medium text-ink">
@@ -131,7 +131,7 @@ export function ProviderCard({
             </p>
           </section>
         )) : (
-          <div className="rounded-lg border border-dashed border-slate-700 px-3 py-6 text-center text-sm text-slate-500">
+          <div className="widget-content rounded-lg border border-dashed border-slate-700 px-3 py-6 text-center text-sm text-slate-500">
             No quota windows yet
           </div>
         )}

@@ -97,6 +97,14 @@ pub struct AppSettings {
     pub size_theme: String,
     #[serde(rename = "antigravityTwoColumnQuota")]
     pub antigravity_two_column_quota: bool,
+    #[serde(rename = "windowMode")]
+    pub window_mode: String,
+    #[serde(rename = "widgetOpacity")]
+    pub widget_opacity: i64,
+    #[serde(rename = "foregroundOpacityBoost")]
+    pub foreground_opacity_boost: i64,
+    #[serde(rename = "widgetAlwaysOnTop")]
+    pub widget_always_on_top: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -123,6 +131,14 @@ pub struct SettingsPatch {
     pub size_theme: Option<String>,
     #[serde(rename = "antigravityTwoColumnQuota")]
     pub antigravity_two_column_quota: Option<bool>,
+    #[serde(rename = "windowMode")]
+    pub window_mode: Option<String>,
+    #[serde(rename = "widgetOpacity")]
+    pub widget_opacity: Option<i64>,
+    #[serde(rename = "foregroundOpacityBoost")]
+    pub foreground_opacity_boost: Option<i64>,
+    #[serde(rename = "widgetAlwaysOnTop")]
+    pub widget_always_on_top: Option<bool>,
 }
 
 pub fn provider_presentation(provider: &str) -> (&'static str, &'static str, &'static str) {

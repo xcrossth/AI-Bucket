@@ -31,7 +31,8 @@ consistent used-percentage gauges. It is not an API gateway and does not need to
 - Notify when usage crosses a configurable threshold or when a quota window appears to reset.
 - Avoid repeat notifications for the same provider, window, and percentage during an app session.
 - Keep the latest 150 quota records locally, with 15 records per history page.
-- Switch between system, dark, and light themes and compact, normal, or large density.
+- Switch between system, dark, and light themes and very compact, compact, normal, or large density.
+- Switch to a frameless Widget mode with independent window placement, layered opacity, and optional always-on-top behavior.
 - Restore window position, size, and maximized state across launches.
 - Store API keys encrypted with Windows DPAPI and display only a masked value after saving.
 
@@ -105,6 +106,34 @@ automation**.
 Each account provides separate controls for auto-refresh, quota-threshold alerts, and reset
 alerts. A reset is inferred when a window drops from above 10% used to below 5% used between
 refreshes. This tolerance allows another client to consume a small amount before AI Bucket checks.
+
+## Widget mode
+
+![AI Bucket Widget mode](artifacts/ai-bucket-widget-mode.png)
+
+Widget mode removes the native title bar and keeps a compact, draggable header above a dedicated
+scrolling region for provider cards. The header remains visible with consistent spacing while the
+cards scroll beneath it without passing behind it. Widget appearance controls remain available at
+the bottom of the scrolling region; account configuration and recent history stay hidden until the
+app returns to Normal mode.
+
+Normal and Widget modes remember their window position and size independently; the first Widget
+window opens at approximately `560x900`. The header provides controls to return to Normal mode,
+refresh every account, or close the app with confirmation. The undecorated Widget window also
+disables the native Windows shadow to avoid the one-pixel border Windows adds around frameless
+windows.
+
+Widget appearance defaults to 60% window opacity, a 20% content boost, and always-on-top enabled.
+The settings separate **window opacity** from **content boost**. Backgrounds,
+panels, borders, shadows, and controls use the configured window opacity. Text, provider logos,
+quota gauges, and percentages use `window opacity + content boost`, capped at 100%. This keeps
+important quota information readable without making the whole widget fully opaque.
+
+The frameless window can be dragged from the header or empty background space. The scrollbar stays
+hidden until the user scrolls with the mouse wheel or presses Page Up or Page Down, then disappears
+again after one second of inactivity without shifting the layout. Always-on-top can be disabled in
+Widget appearance settings. Widget mode does not provide the native Windows system menu, caption
+buttons, or title-bar Snap Layout, and transparent areas are not click-through.
 
 ## Privacy and local data
 

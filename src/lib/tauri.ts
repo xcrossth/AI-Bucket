@@ -81,3 +81,13 @@ export async function updateAppSettings(
 
   return invoke<DashboardState>("save_app_settings", { patch });
 }
+
+export async function startWindowDrag(): Promise<void> {
+  if (!isTauriRuntime()) return;
+  return invoke<void>("start_window_drag");
+}
+
+export async function shutdownApp(): Promise<void> {
+  if (!isTauriRuntime()) return;
+  return invoke<void>("shutdown_app");
+}
