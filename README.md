@@ -169,7 +169,7 @@ reporting guidance.
 Requirements:
 
 - Windows 10 or 11 (x64)
-- Node.js 20 or newer
+- Node.js 24 LTS
 - Rust stable with the `x86_64-pc-windows-msvc` target
 - Microsoft C++ Build Tools and Windows SDK
 - WebView2 Runtime
