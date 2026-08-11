@@ -5,6 +5,7 @@ import {
   Eye,
   EyeOff,
   ExternalLink,
+  FolderOpen,
   Laptop,
   Minimize2,
   Moon,
@@ -20,6 +21,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { AppSettings, ProviderConfig, ProviderId } from "../types";
 import { formatRelativeMinutes } from "../lib/format";
 import { ProviderIcon } from "./ProviderIcon";
+import { chooseLocalConfigDirectory } from "../lib/tauri";
 
 interface SettingsPanelProps {
   configs: ProviderConfig[];
@@ -43,12 +45,12 @@ const labels: Record<ProviderId, string> = {
   glm: "GLM"
 };
 
-const defaults: Record<ProviderId, Pick<ProviderConfig, "authMethod" | "baseUrl">> = {
-  openai: { authMethod: "local_credential", baseUrl: "https://chatgpt.com/backend-api/wham/usage" },
-  claude: { authMethod: "local_credential", baseUrl: "https://claude.ai/api/organizations/{org_id}/usage" },
-  google: { authMethod: "local_credential", baseUrl: "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota" },
-  minimax: { authMethod: "api_key", baseUrl: "https://www.minimax.io/v1/token_plan/remains" },
-  glm: { authMethod: "api_key", baseUrl: "https://api.z.ai/api/monitor/usage/quota/limit" }
+const defaults: Record<ProviderId, Pick<ProviderConfig, "authMethod" | "baseUrl" | "localConfigPath">> = {
+  openai: { authMethod: "local_credential", baseUrl: "https://chatgpt.com/backend-api/wham/usage", localConfigPath: "" },
+  claude: { authMethod: "local_credential", baseUrl: "https://claude.ai/api/organizations/{org_id}/usage", localConfigPath: "" },
+  google: { authMethod: "local_credential", baseUrl: "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota", localConfigPath: "" },
+  minimax: { authMethod: "api_key", baseUrl: "https://www.minimax.io/v1/token_plan/remains", localConfigPath: "" },
+  glm: { authMethod: "api_key", baseUrl: "https://api.z.ai/api/monitor/usage/quota/limit", localConfigPath: "" }
 };
 
 function newAccount(provider: ProviderId = "openai"): ProviderConfig {
@@ -60,6 +62,7 @@ function newAccount(provider: ProviderId = "openai"): ProviderConfig {
     apiKey: "",
     credentialConfigured: false,
     baseUrl: defaults[provider].baseUrl,
+    localConfigPath: defaults[provider].localConfigPath,
     enabled: true,
     thresholdAlertEnabled: true,
     resetAlertEnabled: true,
@@ -280,6 +283,35 @@ export function SettingsPanel({
                 )}
               </select>
             </div>
+            {form.provider === "openai" && form.authMethod === "local_credential" ? (
+              <div>
+                <label className="mb-2 block text-sm text-slate-300">Codex home path</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    value={form.localConfigPath}
+                    onChange={(event) => updateForm({ localConfigPath: event.target.value })}
+                    placeholder="%USERPROFILE%\.codex (default)"
+                    spellCheck={false}
+                    className="min-w-0 flex-1 rounded-md border border-slate-700 bg-slate-950 px-3 py-2.5 font-mono text-sm text-slate-100 outline-none focus:border-slate-500"
+                  />
+                  <button
+                    type="button"
+                    title="Select Codex home folder"
+                    aria-label="Select Codex home folder"
+                    onClick={async () => {
+                      const selected = await chooseLocalConfigDirectory();
+                      if (selected) updateForm({ localConfigPath: selected });
+                    }}
+                    className="action-button inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border"
+                  >
+                    <FolderOpen className="h-4 w-4" />
+                  </button>
+                </div>
+                <p className="m-0 mt-1.5 text-xs leading-5 text-slate-500">
+                  Leave blank to use CODEX_HOME or the default %USERPROFILE%\.codex. Custom folders must contain a valid auth.json.
+                </p>
+              </div>
+            ) : (
             <div>
               <label className="mb-2 block text-sm text-slate-300">
                 {form.authMethod === "api_key" ? "API key" : "Credential source"}
@@ -292,6 +324,7 @@ export function SettingsPanel({
                 className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2.5 text-slate-100 outline-none focus:border-slate-500"
               />
             </div>
+            )}
             {form.provider === "claude" && form.authMethod === "oauth" ? (
               <div className="rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-3 text-sm text-slate-300">
                 <span className="block font-medium text-amber-200">Experimental Claude OAuth</span>

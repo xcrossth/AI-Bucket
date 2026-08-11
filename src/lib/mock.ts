@@ -34,6 +34,7 @@ function defaultConfigs(): ProviderConfig[] {
       apiKey: "",
       credentialConfigured: false,
       baseUrl: "https://chatgpt.com/backend-api/wham/usage",
+      localConfigPath: "",
       enabled: true, thresholdAlertEnabled: true, resetAlertEnabled: true, visible: true, sortOrder: 0
     },
     {
@@ -44,6 +45,7 @@ function defaultConfigs(): ProviderConfig[] {
       apiKey: "",
       credentialConfigured: false,
       baseUrl: "https://claude.ai/api/organizations/{org_id}/usage",
+      localConfigPath: "",
       enabled: true, thresholdAlertEnabled: true, resetAlertEnabled: true, visible: true, sortOrder: 1
     },
     {
@@ -54,6 +56,7 @@ function defaultConfigs(): ProviderConfig[] {
       apiKey: "",
       credentialConfigured: false,
       baseUrl: "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota",
+      localConfigPath: "",
       enabled: true, thresholdAlertEnabled: true, resetAlertEnabled: true, visible: true, sortOrder: 2
     },
     {
@@ -64,6 +67,7 @@ function defaultConfigs(): ProviderConfig[] {
       apiKey: "",
       credentialConfigured: false,
       baseUrl: "https://www.minimax.io/v1/token_plan/remains",
+      localConfigPath: "",
       enabled: true, thresholdAlertEnabled: true, resetAlertEnabled: true, visible: true, sortOrder: 3
     },
     {
@@ -74,6 +78,7 @@ function defaultConfigs(): ProviderConfig[] {
       apiKey: "",
       credentialConfigured: false,
       baseUrl: "https://api.z.ai/api/monitor/usage/quota/limit",
+      localConfigPath: "",
       enabled: true, thresholdAlertEnabled: true, resetAlertEnabled: true, visible: true, sortOrder: 4
     }
   ];

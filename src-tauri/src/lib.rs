@@ -789,7 +789,7 @@ async fn refresh_one(
     let provider = config.provider.as_str();
 
     let next = if provider == "openai" {
-        match providers::codex::collect().await {
+        match providers::codex::collect(&config.local_config_path).await {
             Ok(usage) => apply_codex_usage(&current, usage),
             Err(error) => apply_codex_error(&current, error.kind, error.message),
         }
@@ -951,7 +951,7 @@ async fn refresh_all_providers(
 #[tauri::command]
 fn save_provider_config(
     state: State<AppState>,
-    config: ProviderConfig,
+    mut config: ProviderConfig,
 ) -> Result<DashboardState, String> {
     if !PROVIDER_IDS.contains(&config.provider.as_str()) {
         return Err("Provider not found".into());
@@ -967,6 +967,13 @@ fn save_provider_config(
     };
     if !supported_auth {
         return Err("This authentication method is not available for the provider yet".into());
+    }
+    if config.provider == "openai" && config.auth_method == "local_credential" {
+        config.local_config_path = config.local_config_path.trim().to_string();
+        providers::codex::validate_home(&config.local_config_path)
+            .map_err(|error| error.message)?;
+    } else {
+        config.local_config_path.clear();
     }
     let path = db_path(&state)?;
     let credentials_path = credential_dir(&state)?;
@@ -1292,6 +1299,7 @@ pub fn run() {
     let window_state_flags = window_state_flags();
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(
             tauri_plugin_window_state::Builder::default()

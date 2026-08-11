@@ -58,7 +58,7 @@ as one desktop application, with no AI Bucket web server, proxy, or hosted contr
 
 | Provider | Authentication | Quota source |
 |---|---|---|
-| OpenAI Codex | Existing local Codex CLI session | ChatGPT structured usage endpoint |
+| OpenAI Codex | Existing local Codex CLI session, with an optional home path per card | ChatGPT structured usage endpoint |
 | Claude | Verified, DPAPI-encrypted Claude Desktop session cache or per-card OAuth (experimental) | Claude structured usage endpoint, including Fable when available |
 | Google Antigravity | Existing local Antigravity OAuth session | Antigravity structured quota endpoint |
 | MiniMax | API key | Coding Plan or Token Plan quota endpoint |
@@ -115,6 +115,36 @@ automation**.
 Each account provides separate controls for auto-refresh, quota-threshold alerts, and reset
 alerts. A reset is inferred when a window drops from above 10% used to below 5% used between
 refreshes. This tolerance allows another client to consume a small amount before AI Bucket checks.
+
+### Multiple Codex accounts
+
+Each OpenAI Codex card can read a different Codex home directory. Leave **Codex home path** blank
+to preserve the normal lookup order: `CODEX_AUTH_JSON`, then `CODEX_HOME`, then
+`%USERPROFILE%\.codex`. To add another account, first create and sign in to a separate Codex home:
+
+```powershell
+$codexHome = "$env:USERPROFILE\.codex-acc2"
+New-Item -ItemType Directory -Force $codexHome
+$env:CODEX_HOME = $codexHome
+codex login
+```
+
+Then add another OpenAI Codex account in AI Bucket and select that directory with the folder
+button. A custom directory must be absolute and contain a valid `auth.json`; AI Bucket deliberately
+does not fall back to the default account when a custom path fails, because doing so could show the
+wrong account's quota.
+
+AI Bucket's Codex collector currently reads file-based credentials. If the Codex CLI stores login
+credentials in the operating-system keyring, set this in that Codex home's `config.toml` and sign in
+again:
+
+```toml
+cli_auth_credentials_store = "file"
+```
+
+Only the selected directory path is stored in AI Bucket's database. Tokens remain in the Codex
+home's `auth.json`, are read by the Rust backend during refresh, and are never returned to the
+frontend.
 
 ## Widget mode
 

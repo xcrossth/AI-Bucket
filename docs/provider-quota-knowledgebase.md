@@ -1,6 +1,6 @@
 # AI Bucket Provider Quota Knowledgebase
 
-Last reviewed: 2026-07-11
+Last reviewed: 2026-08-11
 
 This document records quota and usage retrieval methods that are suitable for AI Bucket, a
 standalone Windows viewer. It is based on source-code review of:
@@ -96,6 +96,9 @@ windows instead of discarding them.
 ### Recommended path: local Codex auth file
 
 - Credential file: `%USERPROFILE%\.codex\auth.json`
+- Multiple accounts: assign each AI Bucket card an independent Codex home, such as
+  `%USERPROFILE%\.codex` and `%USERPROFILE%\.codex-acc2`; each directory must contain its own
+  `auth.json`.
 - Required fields:
   - `tokens.access_token`
   - `tokens.refresh_token` for recovery/refresh support
@@ -109,6 +112,12 @@ windows instead of discarding them.
 
 The `chatgpt-account-id` header matters for users with Personal plus Team/Business workspaces.
 Do not silently fall back to another workspace.
+
+AI Bucket stores the Codex home path, not a copy of the credential. A blank path preserves the
+standard `CODEX_AUTH_JSON` / `CODEX_HOME` / `%USERPROFILE%\.codex` lookup order. When a custom path
+is configured, failure to read it is surfaced on that card without falling back to the default
+home. The current collector requires file-based Codex credentials; homes configured to use only
+the operating-system keyring must use `cli_auth_credentials_store = "file"` and sign in again.
 
 Expected response areas:
 

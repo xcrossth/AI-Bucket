@@ -38,7 +38,18 @@ pub struct CodexUsage {
     pub limits: Vec<LimitMetric>,
 }
 
-fn auth_path() -> Result<PathBuf, CodexError> {
+fn auth_path(codex_home: &str) -> Result<PathBuf, CodexError> {
+    let codex_home = codex_home.trim();
+    if !codex_home.is_empty() {
+        let path = PathBuf::from(codex_home);
+        if !path.is_absolute() {
+            return Err(CodexError::new(
+                CodexErrorKind::InvalidResponse,
+                "Codex home path must be an absolute directory.",
+            ));
+        }
+        return Ok(path.join("auth.json"));
+    }
     if let Some(path) = env::var_os("CODEX_AUTH_JSON") {
         return Ok(PathBuf::from(path));
     }
@@ -53,8 +64,8 @@ fn auth_path() -> Result<PathBuf, CodexError> {
     Ok(PathBuf::from(home).join(".codex").join("auth.json"))
 }
 
-fn read_credentials() -> Result<(String, Option<String>), CodexError> {
-    let path = auth_path()?;
+fn read_credentials(codex_home: &str) -> Result<(String, Option<String>), CodexError> {
+    let path = auth_path(codex_home)?;
     let raw = fs::read_to_string(&path).map_err(|_| {
         CodexError::new(
             CodexErrorKind::NeedsAuth,
@@ -89,11 +100,26 @@ fn read_credentials() -> Result<(String, Option<String>), CodexError> {
 }
 
 pub fn has_local_config() -> bool {
-    read_credentials().is_ok()
+    read_credentials("").is_ok()
 }
 
-pub async fn collect() -> Result<CodexUsage, CodexError> {
-    let (access_token, account_id) = read_credentials()?;
+pub fn validate_home(codex_home: &str) -> Result<(), CodexError> {
+    let codex_home = codex_home.trim();
+    if codex_home.is_empty() {
+        return Ok(());
+    }
+    let path = PathBuf::from(codex_home);
+    if !path.is_dir() {
+        return Err(CodexError::new(
+            CodexErrorKind::InvalidResponse,
+            "Codex home path must be an existing directory.",
+        ));
+    }
+    read_credentials(codex_home).map(|_| ())
+}
+
+pub async fn collect(codex_home: &str) -> Result<CodexUsage, CodexError> {
+    let (access_token, account_id) = read_credentials(codex_home)?;
     let client = reqwest::Client::builder()
         .redirect(Policy::none())
         .timeout(Duration::from_secs(12))
@@ -373,9 +399,40 @@ mod tests {
     }
 
     #[test]
+    fn resolves_and_validates_a_custom_codex_home() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        let home = env::temp_dir().join(format!(
+            "ai-bucket-codex-home-test-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir(&home).expect("create Codex home");
+        fs::write(
+            home.join("auth.json"),
+            r#"{"tokens":{"access_token":"test-token","account_id":"test-account"}}"#,
+        )
+        .expect("write auth file");
+
+        assert_eq!(
+            auth_path(home.to_str().expect("UTF-8 path")).expect("custom auth path"),
+            home.join("auth.json")
+        );
+        validate_home(home.to_str().expect("UTF-8 path")).expect("valid Codex home");
+        fs::remove_dir_all(home).expect("remove Codex home");
+    }
+
+    #[test]
+    fn rejects_relative_custom_codex_home() {
+        let error = auth_path(".codex-acc2").expect_err("relative home should fail");
+        assert_eq!(error.kind, CodexErrorKind::InvalidResponse);
+    }
+
+    #[test]
     #[ignore = "uses the local Codex session and calls the live quota endpoint"]
     fn live_collector_returns_quota_windows() {
-        let usage = tauri::async_runtime::block_on(collect()).expect("live Codex quota request");
+        let usage = tauri::async_runtime::block_on(collect("")).expect("live Codex quota request");
         assert!(!usage.limits.is_empty());
         assert!(usage.limits.iter().all(|limit| limit.total > 0.0));
     }
@@ -386,7 +443,7 @@ mod tests {
         let samples = tauri::async_runtime::block_on(async {
             let mut samples = Vec::new();
             for _ in 0..6 {
-                let usage = collect().await.expect("live Codex quota request");
+                let usage = collect("").await.expect("live Codex quota request");
                 samples.push(
                     usage
                         .limits

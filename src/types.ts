@@ -54,6 +54,7 @@ export interface ProviderConfig {
   apiKey: string;
   credentialConfigured: boolean;
   baseUrl: string;
+  localConfigPath: string;
   enabled: boolean;
   thresholdAlertEnabled: boolean;
   resetAlertEnabled: boolean;

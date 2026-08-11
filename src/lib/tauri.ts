@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type { DashboardState, ProviderConfig, ProviderId } from "../types";
 import {
   loadMockState,
@@ -13,6 +14,16 @@ import {
 
 function isTauriRuntime(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
+export async function chooseLocalConfigDirectory(): Promise<string | null> {
+  if (!isTauriRuntime()) return null;
+  const selected = await openDialog({
+    directory: true,
+    multiple: false,
+    title: "Select Codex home folder"
+  });
+  return typeof selected === "string" ? selected : null;
 }
 
 export async function getDashboardState(): Promise<DashboardState> {

@@ -73,6 +73,8 @@ pub struct ProviderConfig {
     pub credential_configured: bool,
     #[serde(rename = "baseUrl")]
     pub base_url: String,
+    #[serde(rename = "localConfigPath")]
+    pub local_config_path: String,
     pub enabled: bool,
     #[serde(rename = "thresholdAlertEnabled")]
     pub threshold_alert_enabled: bool,
