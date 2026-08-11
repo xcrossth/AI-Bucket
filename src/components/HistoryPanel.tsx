@@ -46,7 +46,7 @@ export function HistoryPanel({ items }: HistoryPanelProps) {
           </thead>
           <tbody>
             {pageItems.map((item) => (
-              <tr key={item.id} className="border-t border-slate-800 text-sm text-slate-200">
+              <tr key={`${item.id}-${item.provider}-${item.limitId}-${item.recordedAt}`} className="border-t border-slate-800 text-sm text-slate-200">
                 <td className="px-4 py-3 capitalize">{item.provider}</td>
                 <td className="px-4 py-3">{item.limitLabel}</td>
                 <td className="px-4 py-3">

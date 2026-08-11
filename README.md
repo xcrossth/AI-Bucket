@@ -33,6 +33,7 @@ consistent used-percentage gauges. It is not an API gateway and does not need to
 - Keep the latest 150 quota records locally, with 15 records per history page.
 - Switch between system, dark, and light themes and very compact, compact, normal, or large density.
 - Switch to a frameless Widget mode with independent window placement, layered opacity, and optional always-on-top behavior.
+- Optionally minimize to the Windows system tray using the AI Bucket app icon.
 - Restore window position, size, and maximized state across launches.
 - Store API keys encrypted with Windows DPAPI and display only a masked value after saving.
 
@@ -58,14 +59,22 @@ as one desktop application, with no AI Bucket web server, proxy, or hosted contr
 | Provider | Authentication | Quota source |
 |---|---|---|
 | OpenAI Codex | Existing local Codex CLI session | ChatGPT structured usage endpoint |
-| Claude | Existing local Claude Desktop session | Claude structured usage endpoint, including Fable when available |
+| Claude | Verified, DPAPI-encrypted Claude Desktop session cache or per-card OAuth (experimental) | Claude structured usage endpoint, including Fable when available |
 | Google Antigravity | Existing local Antigravity OAuth session | Antigravity structured quota endpoint |
 | MiniMax | API key | Coding Plan or Token Plan quota endpoint |
 | GLM / Z.AI | API key | Coding Plan quota endpoint |
 
-Interactive OAuth initiated by AI Bucket is not implemented yet. Current local-session providers
-reuse credentials maintained by their official desktop app or CLI. AI Bucket does not scrape
-provider web pages.
+Claude cards can either reuse the current Claude Desktop session or sign in independently with
+OAuth. Each OAuth card stores its own access and refresh tokens, encrypted with Windows DPAPI.
+For a local-session card, AI Bucket validates the Desktop session against Claude's quota endpoint
+before saving an encrypted per-card cache. Some Claude Desktop releases lock their cookie database
+exclusively while running; in that case, quit Claude once and refresh the card to initialize the
+cache. Later refreshes use the cache even while Claude is open, and return to the Desktop profile
+only after Claude rejects the cached session.
+The Claude OAuth and quota endpoints are private beta interfaces and may change without notice;
+the app preserves the last successful quota and credential if a refresh fails. Other
+local-session providers continue to reuse credentials maintained by their official app or CLI.
+AI Bucket does not scrape provider web pages.
 
 ## Install
 
@@ -118,10 +127,10 @@ the bottom of the scrolling region; account configuration and recent history sta
 app returns to Normal mode.
 
 Normal and Widget modes remember their window position and size independently; the first Widget
-window opens at approximately `560x900`. The header provides controls to return to Normal mode,
-refresh every account, or close the app with confirmation. The undecorated Widget window also
-disables the native Windows shadow to avoid the one-pixel border Windows adds around frameless
-windows.
+window opens at approximately `560x900`. The header provides controls to minimize the app, return
+to Normal mode, refresh every account, or close the app with confirmation. The undecorated Widget
+window also disables the native Windows shadow to avoid the one-pixel border Windows adds around
+frameless windows.
 
 Widget appearance defaults to 60% window opacity, a 20% content boost, and always-on-top enabled.
 The settings separate **window opacity** from **content boost**. Backgrounds,
@@ -134,6 +143,13 @@ hidden until the user scrolls with the mouse wheel or presses Page Up or Page Do
 again after one second of inactivity without shifting the layout. Always-on-top can be disabled in
 Widget appearance settings. Widget mode does not provide the native Windows system menu, caption
 buttons, or title-bar Snap Layout, and transparent areas are not click-through.
+
+When **Minimize to system tray** is enabled, minimizing from either the Normal-mode title bar or
+the Widget header hides AI Bucket from the taskbar while background refresh remains active. A
+single left click on the AI Bucket tray icon toggles the window: click once to restore and focus it,
+then click again without moving the pointer to hide it. The context menu's **Show AI Bucket** command
+always restores the window; **Quit AI Bucket** and the Widget power button still save the current
+window state and exit completely.
 
 ## Privacy and local data
 
@@ -158,8 +174,8 @@ Local data is stored under:
 ```
 
 - `ai-bucket.sqlite` contains account settings, normalized quota snapshots, and recent history.
-- `credentials\` contains API keys encrypted for the current Windows user with DPAPI.
-- Local provider sessions remain owned by the original app or CLI and are read only when needed.
+- `credentials\` contains API keys, per-card OAuth tokens, and verified Claude Desktop session caches encrypted for the current Windows user with DPAPI.
+- Codex and Antigravity sessions remain owned by their original app or CLI. For Claude local-session cards, AI Bucket imports a session only after a successful quota request, then uses the encrypted cache until Claude rejects it. An expired cache is never overwritten unless a newly imported Desktop session also passes quota validation.
 
 Never attach this AppData directory to a bug report. See [Security policy](SECURITY.md) for safe
 reporting guidance.

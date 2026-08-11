@@ -3,6 +3,7 @@ export type ProviderId = "openai" | "claude" | "google" | "minimax" | "glm";
 export type ProviderStatus =
   | "ready"
   | "needs_auth"
+  | "credential_locked"
   | "needs_config"
   | "error"
   | "placeholder";
@@ -51,6 +52,7 @@ export interface ProviderConfig {
   customName: string;
   authMethod: "local_credential" | "oauth" | "api_key";
   apiKey: string;
+  credentialConfigured: boolean;
   baseUrl: string;
   enabled: boolean;
   thresholdAlertEnabled: boolean;
@@ -71,6 +73,7 @@ export interface AppSettings {
   widgetOpacity: number;
   foregroundOpacityBoost: number;
   widgetAlwaysOnTop: boolean;
+  minimizeToTray: boolean;
 }
 
 export interface DashboardState {

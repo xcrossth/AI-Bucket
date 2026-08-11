@@ -157,6 +157,37 @@ is available. Keep it as an optional local-session import only, not as the defau
 - Endpoint status: unofficial/internal
 - Failure behavior: show `reauth_required` on 401/403; never expose token text
 
+## Claude
+
+AI Bucket supports two independent Claude credential paths. `local_credential` imports the active
+Claude Desktop session only after a successful quota request, then stores a per-card copy encrypted
+with Windows DPAPI. `oauth` creates a separate token set for a single AI Bucket card, so work and
+personal accounts can coexist without changing the Desktop session.
+
+The OAuth implementation follows Claude Code's Authorization Code + PKCE flow:
+
+- authorize: `https://claude.ai/oauth/authorize`
+- token and refresh: `https://api.anthropic.com/v1/oauth/token`
+- fixed redirect: `https://platform.claude.com/oauth/code/callback`
+- account bootstrap: `GET https://api.anthropic.com/api/claude_cli/bootstrap`
+- quota: `GET https://api.anthropic.com/api/oauth/usage`
+- beta header: `anthropic-beta: oauth-2025-04-20`
+
+The callback currently presents an authorization code for the user to paste back into AI Bucket.
+AI Bucket validates the OAuth state and PKCE verifier before exchanging it. Access and refresh
+tokens are encrypted per `accountId` with Windows DPAPI; SQLite stores only the credential file
+reference. Refresh operations are serialized per card, and a rotated refresh token is written
+atomically before the quota request continues.
+
+Endpoints are fixed in the Rust backend. The Base URL field is disabled for OAuth cards so a
+Bearer token cannot be redirected to a custom host. On network, parsing, or upstream failures,
+the stored credential and last successful quota remain intact. A rejected refresh marks the card
+as requiring sign-in again without deleting its history.
+
+This flow is experimental because Anthropic does not document these Claude Code beta interfaces
+as a general third-party OAuth API. Re-authentication remains available on each card in case the
+provider changes or revokes the flow.
+
 ## Google Gemini API and Antigravity
 
 These are separate products and must not share one quota collector.
@@ -357,6 +388,7 @@ acceptable as local-credential fallbacks:
 | Z.AI | `/api/monitor/usage/quota/limit` | Imported JWT from local storage |
 
 Prefer OAuth/API-key alternatives where available because cookie expiry and manual import are harder
+to support safely.
 
 ### Claude Desktop on Windows
 
@@ -365,12 +397,17 @@ Prefer OAuth/API-key alternatives where available because cookie expiry and manu
 - Electron profile: `LocalCache\\Roaming\\Claude`.
 - Chromium encryption metadata: `Local State` (`os_crypt.encrypted_key`, protected by Windows DPAPI).
 - Session database: `Network\\Cookies`; the required `sessionKey` is Chromium `v10` AES-GCM data.
-- Decrypt credentials only in memory. Do not persist cookie values or include them in logs/errors.
+- Decrypt source credentials only in memory and never include them in logs or errors. A verified
+  per-account session cache may be persisted only in the Windows DPAPI credential store.
 - Fetch `GET https://claude.ai/api/bootstrap`, select the active subscription organization, then call
   `GET https://claude.ai/api/organizations/{org_id}/usage` with the local session cookie.
-- The cookie database can be locked while Claude Desktop is running. Surface a quit-and-refresh
-  instruction instead of modifying or forcibly unlocking the profile.
-to support safely.
+- Try a read-only database snapshot when the cookie database cannot be queried directly. Some
+  Claude Desktop releases deny all file sharing while running, so the first cache initialization
+  can still require quitting Claude once and refreshing the card. Surface `credential_locked`
+  instead of `needs_auth`; never modify or forcibly unlock the Desktop profile.
+- After a Desktop session successfully loads bootstrap and quota data, use its encrypted cache
+  first and return to the Desktop database only after an authentication rejection. Never replace
+  the last working cache with an unverified or partially read credential.
 
 ## Methods excluded from AI Bucket
 

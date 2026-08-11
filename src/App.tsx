@@ -1,4 +1,4 @@
-import { Bell, Maximize2, PictureInPicture2, Power, RefreshCw, ShieldCheck } from "lucide-react";
+import { Bell, Maximize2, Minus, PictureInPicture2, Power, RefreshCw, ShieldCheck } from "lucide-react";
 import { DndContext, DragEndEvent, PointerSensor, closestCenter, useSensor, useSensors } from "@dnd-kit/core";
 import { SortableContext, rectSortingStrategy } from "@dnd-kit/sortable";
 import { useEffect, useMemo, useState } from "react";
@@ -17,7 +17,10 @@ import {
   updateProviderConfig,
   reorderProviderAccounts,
   shutdownApp,
-  startWindowDrag
+  minimizeWindow,
+  startWindowDrag,
+  beginClaudeOAuth,
+  completeClaudeOAuth
 } from "./lib/tauri";
 import type { DashboardState } from "./types";
 
@@ -168,14 +171,14 @@ function App() {
               alt="AI Bucket mascot"
               className={`widget-content shrink-0 object-contain ${isWidget ? "h-12 w-12" : "h-20 w-20 sm:h-24 sm:w-24"}`}
             />
-            <div className={isWidget ? "min-w-0" : "space-y-2"}>
+            <div className={isWidget ? "min-w-0 pr-48" : "space-y-2"}>
               {!isWidget ? <div className="widget-content inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-950/70 px-3 py-1 text-xs uppercase tracking-wide text-slate-400">
                 <ShieldCheck className="h-3.5 w-3.5" />
                 Windows quota monitor
               </div> : null}
               <div>
                 <h1 className={`widget-content m-0 font-semibold text-white ${isWidget ? "text-xl" : "text-3xl"}`}>AI Bucket</h1>
-                <p className={`widget-content m-0 max-w-2xl truncate text-slate-400 ${isWidget ? "mt-1 pr-28 text-xs" : "mt-2 text-sm"}`}>
+                <p className={`widget-content m-0 max-w-2xl truncate text-slate-400 ${isWidget ? "mt-1 text-xs" : "mt-2 text-sm"}`}>
                   Quota viewer for Codex, Claude, Antigravity, MiniMax, and GLM.
                 </p>
               </div>
@@ -211,6 +214,17 @@ function App() {
                 className={`h-4 w-4 ${refreshingProvider === "all" ? "animate-spin" : ""}`}
               />
             </button>
+            {isWidget ? (
+              <button
+                title={state.settings.minimizeToTray ? "Minimize to system tray" : "Minimize"}
+                aria-label={state.settings.minimizeToTray ? "Minimize to system tray" : "Minimize AI Bucket"}
+                type="button"
+                onClick={() => void minimizeWindow().catch((err) => setError(err instanceof Error ? err.message : "Minimize failed"))}
+                className="widget-control action-button inline-flex h-8 w-8 items-center justify-center rounded-md border"
+              >
+                <Minus className="h-4 w-4" />
+              </button>
+            ) : null}
             <button
               title={isWidget ? "Return to normal mode" : "Switch to Widget mode"}
               aria-label={isWidget ? "Return to normal mode" : "Switch to Widget mode"}
@@ -301,13 +315,26 @@ function App() {
                 const created = [...next.configs]
                   .reverse()
                   .find((item) => item.provider === config.provider && item.customName === config.customName);
-                if (created) setSelectedAccountId(created.accountId);
+                if (created) {
+                  setSelectedAccountId(created.accountId);
+                  return created;
+                }
               }
+              return next.configs.find((item) => item.accountId === config.accountId) ?? null;
             } catch (err) {
               setError(err instanceof Error ? err.message : "Save failed");
+              return null;
             } finally {
               setSavingConfig(false);
             }
+          }}
+          onBeginClaudeOAuth={async (accountId) => {
+            const start = await beginClaudeOAuth(accountId);
+            return start.authUrl;
+          }}
+          onCompleteClaudeOAuth={async (accountId, authorizationCode) => {
+            const next = await completeClaudeOAuth(accountId, authorizationCode);
+            setState(next);
           }}
           onDeleteConfig={async (accountId) => {
             try {

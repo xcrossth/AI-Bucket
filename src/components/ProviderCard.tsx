@@ -41,6 +41,7 @@ function StatusBadge({ provider }: { provider: ProviderSnapshot }) {
   const map = {
     ready: "Ready",
     needs_auth: "Needs auth",
+    credential_locked: "Close Claude",
     needs_config: "Needs config",
     error: "Error",
     placeholder: "Placeholder"

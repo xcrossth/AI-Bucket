@@ -32,6 +32,7 @@ function defaultConfigs(): ProviderConfig[] {
       customName: "",
       authMethod: "local_credential",
       apiKey: "",
+      credentialConfigured: false,
       baseUrl: "https://chatgpt.com/backend-api/wham/usage",
       enabled: true, thresholdAlertEnabled: true, resetAlertEnabled: true, visible: true, sortOrder: 0
     },
@@ -41,6 +42,7 @@ function defaultConfigs(): ProviderConfig[] {
       customName: "",
       authMethod: "local_credential",
       apiKey: "",
+      credentialConfigured: false,
       baseUrl: "https://claude.ai/api/organizations/{org_id}/usage",
       enabled: true, thresholdAlertEnabled: true, resetAlertEnabled: true, visible: true, sortOrder: 1
     },
@@ -50,6 +52,7 @@ function defaultConfigs(): ProviderConfig[] {
       customName: "",
       authMethod: "local_credential",
       apiKey: "",
+      credentialConfigured: false,
       baseUrl: "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota",
       enabled: true, thresholdAlertEnabled: true, resetAlertEnabled: true, visible: true, sortOrder: 2
     },
@@ -59,6 +62,7 @@ function defaultConfigs(): ProviderConfig[] {
       customName: "",
       authMethod: "api_key",
       apiKey: "",
+      credentialConfigured: false,
       baseUrl: "https://www.minimax.io/v1/token_plan/remains",
       enabled: true, thresholdAlertEnabled: true, resetAlertEnabled: true, visible: true, sortOrder: 3
     },
@@ -68,6 +72,7 @@ function defaultConfigs(): ProviderConfig[] {
       customName: "",
       authMethod: "api_key",
       apiKey: "",
+      credentialConfigured: false,
       baseUrl: "https://api.z.ai/api/monitor/usage/quota/limit",
       enabled: true, thresholdAlertEnabled: true, resetAlertEnabled: true, visible: true, sortOrder: 4
     }
@@ -180,7 +185,8 @@ function defaultState(): DashboardState {
       windowMode: "normal",
       widgetOpacity: 60,
       foregroundOpacityBoost: 20,
-      widgetAlwaysOnTop: true
+      widgetAlwaysOnTop: true,
+      minimizeToTray: false
     }
   };
 }

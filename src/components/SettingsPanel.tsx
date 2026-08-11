@@ -4,6 +4,7 @@ import {
   Expand,
   Eye,
   EyeOff,
+  ExternalLink,
   Laptop,
   Minimize2,
   Moon,
@@ -25,7 +26,9 @@ interface SettingsPanelProps {
   settings: AppSettings;
   selectedAccountId: number | null;
   onSelectAccount: (accountId: number | null) => void;
-  onSaveConfig: (config: ProviderConfig) => Promise<void>;
+  onSaveConfig: (config: ProviderConfig) => Promise<ProviderConfig | null>;
+  onBeginClaudeOAuth: (accountId: number) => Promise<string>;
+  onCompleteClaudeOAuth: (accountId: number, authorizationCode: string) => Promise<void>;
   onDeleteConfig: (accountId: number) => Promise<void>;
   onTestAlert: (accountId: number, alertKind: "threshold" | "reset") => Promise<void>;
   onSaveSettings: (patch: Partial<AppSettings>) => Promise<void>;
@@ -55,6 +58,7 @@ function newAccount(provider: ProviderId = "openai"): ProviderConfig {
     customName: "",
     authMethod: defaults[provider].authMethod,
     apiKey: "",
+    credentialConfigured: false,
     baseUrl: defaults[provider].baseUrl,
     enabled: true,
     thresholdAlertEnabled: true,
@@ -70,6 +74,8 @@ export function SettingsPanel({
   selectedAccountId,
   onSelectAccount,
   onSaveConfig,
+  onBeginClaudeOAuth,
+  onCompleteClaudeOAuth,
   onDeleteConfig,
   onTestAlert,
   onSaveSettings,
@@ -82,6 +88,9 @@ export function SettingsPanel({
   const [draft, setDraft] = useState<ProviderConfig | null>(null);
   const [form, setForm] = useState<ProviderConfig>(() => newAccount());
   const [pendingDelete, setPendingDelete] = useState<ProviderConfig | null>(null);
+  const [oauthAccountId, setOauthAccountId] = useState<number | null>(null);
+  const [oauthCode, setOauthCode] = useState("");
+  const [oauthError, setOauthError] = useState("");
 
   useEffect(() => {
     const next = draft ?? selectedStored;
@@ -105,6 +114,17 @@ export function SettingsPanel({
   const closeEditor = () => {
     setDraft(null);
     onSelectAccount(null);
+  };
+
+  const startClaudeOAuth = async (accountId: number) => {
+    setOauthError("");
+    setOauthCode("");
+    setOauthAccountId(accountId);
+    try {
+      await onBeginClaudeOAuth(accountId);
+    } catch (error) {
+      setOauthError(error instanceof Error ? error.message : String(error || "Unable to open Claude sign-in"));
+    }
   };
 
   return (
@@ -192,7 +212,11 @@ export function SettingsPanel({
               className="space-y-4 rounded-lg border border-slate-800 bg-slate-950/40 p-4"
               onSubmit={async (event) => {
                 event.preventDefault();
-                await onSaveConfig(form);
+                const saved = await onSaveConfig(form);
+                if (!saved) return;
+                if (form.provider === "claude" && form.authMethod === "oauth" && form.accountId === 0) {
+                  await startClaudeOAuth(saved.accountId);
+                }
                 closeEditor();
               }}
             >
@@ -237,11 +261,17 @@ export function SettingsPanel({
               <label className="mb-2 block text-sm text-slate-300">Authentication</label>
               <select
                 value={form.authMethod}
+                disabled={form.accountId !== 0}
                 onChange={(event) => updateForm({ authMethod: event.target.value as ProviderConfig["authMethod"] })}
                 className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2.5 text-slate-100"
               >
                 {form.provider === "minimax" || form.provider === "glm" ? (
                   <option value="api_key">API key</option>
+                ) : form.provider === "claude" ? (
+                  <>
+                    <option value="local_credential">Local Claude Desktop session</option>
+                    <option value="oauth">Claude OAuth (Experimental)</option>
+                  </>
                 ) : (
                   <>
                     <option value="local_credential">Local application session</option>
@@ -257,18 +287,39 @@ export function SettingsPanel({
               <input
                 value={form.apiKey}
                 onChange={(event) => updateForm({ apiKey: event.target.value })}
-                placeholder={form.authMethod === "api_key" ? "Enter key" : "Uses the local signed-in session"}
+                placeholder={form.authMethod === "api_key" ? "Enter key" : form.authMethod === "oauth" ? "Stored securely by AI Bucket" : "Uses the local signed-in session"}
                 disabled={form.authMethod !== "api_key"}
                 className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2.5 text-slate-100 outline-none focus:border-slate-500"
               />
             </div>
+            {form.provider === "claude" && form.authMethod === "oauth" ? (
+              <div className="rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-3 text-sm text-slate-300">
+                <span className="block font-medium text-amber-200">Experimental Claude OAuth</span>
+                <span className="mt-1 block text-xs leading-5 text-slate-400">
+                  Each card keeps its own encrypted access and refresh tokens. Claude may change this private beta flow without notice.
+                </span>
+                {form.accountId !== 0 ? (
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => void startClaudeOAuth(form.accountId)}
+                    className="action-button mt-3 inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium disabled:opacity-60"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                    {form.credentialConfigured ? "Sign in again" : "Connect Claude account"}
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
             <div>
               <label className="mb-2 block text-sm text-slate-300">Base URL</label>
               <input
                 value={form.baseUrl}
                 onChange={(event) => updateForm({ baseUrl: event.target.value })}
+                disabled={form.authMethod === "oauth"}
                 className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2.5 text-slate-100 outline-none focus:border-slate-500"
               />
+              {form.authMethod === "oauth" ? <p className="m-0 mt-1.5 text-xs text-slate-500">OAuth endpoints are fixed by AI Bucket so tokens cannot be sent to a custom URL.</p> : null}
             </div>
             <label className="flex items-center gap-3 rounded-md border border-slate-800 bg-slate-950 px-3 py-3 text-sm text-slate-300">
               <input type="checkbox" checked={form.enabled} onChange={(event) => updateForm({ enabled: event.target.checked })} className="h-4 w-4" />
@@ -299,7 +350,7 @@ export function SettingsPanel({
               <div className="flex flex-wrap items-center gap-2">
                 <button type="submit" disabled={saving} className="action-button inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium disabled:opacity-60">
                   <Save className="h-4 w-4" />
-                  {form.accountId === 0 ? "Add account" : "Save account"}
+                  {form.accountId === 0 && form.authMethod === "oauth" ? "Add account and sign in" : form.accountId === 0 ? "Add account" : "Save account"}
                 </button>
                 <button type="button" onClick={closeEditor} className="inline-flex items-center gap-2 rounded-md border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 hover:text-white">
                   <X className="h-4 w-4" />
@@ -376,6 +427,45 @@ export function SettingsPanel({
           </div>
         </div>
       ) : null}
+      {oauthAccountId !== null ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 p-4 backdrop-blur-sm" role="presentation">
+          <form
+            className="w-full max-w-lg rounded-lg border border-border bg-panel p-5 shadow-2xl"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              setOauthError("");
+              try {
+                await onCompleteClaudeOAuth(oauthAccountId, oauthCode);
+                setOauthAccountId(null);
+                setOauthCode("");
+              } catch (error) {
+                setOauthError(error instanceof Error ? error.message : String(error || "Claude sign-in failed"));
+              }
+            }}
+          >
+            <h3 className="m-0 text-base font-semibold text-ink">Complete Claude sign-in</h3>
+            <p className="m-0 mt-2 text-sm leading-6 text-slate-400">
+              Finish signing in in your browser, then paste the complete authorization code shown by Claude here. Keep the <code>#state</code> suffix.
+            </p>
+            <label className="mt-4 block text-sm text-slate-300">Authorization code</label>
+            <textarea
+              autoFocus
+              required
+              value={oauthCode}
+              onChange={(event) => setOauthCode(event.target.value)}
+              rows={4}
+              spellCheck={false}
+              className="mt-2 w-full resize-y rounded-md border border-slate-700 bg-slate-950 px-3 py-2.5 font-mono text-xs text-slate-100 outline-none focus:border-slate-500"
+            />
+            {oauthError ? <p className="m-0 mt-2 text-sm text-rose-300">{oauthError}</p> : null}
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <button type="button" disabled={saving} onClick={() => void startClaudeOAuth(oauthAccountId)} className="rounded-md border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 hover:text-white">Restart sign-in</button>
+              <button type="button" disabled={saving} onClick={() => setOauthAccountId(null)} className="rounded-md border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 hover:text-white">Cancel</button>
+              <button type="submit" disabled={saving || !oauthCode.trim()} className="action-button inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium disabled:opacity-60"><Save className="h-4 w-4" />Complete sign-in</button>
+            </div>
+          </form>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -393,6 +483,10 @@ export function WidgetAppearanceSettings({ settings, onSaveSettings, className =
     <label className="widget-surface flex items-center justify-between gap-3 rounded-md border border-slate-800 bg-slate-950 px-3 py-3 text-sm text-slate-300">
       <span className="widget-content"><span className="block font-medium">Keep widget on top</span><span className="mt-1 block text-xs text-slate-500">Keep Widget mode above other windows</span></span>
       <input type="checkbox" checked={settings.widgetAlwaysOnTop} onChange={(event) => onSaveSettings({ widgetAlwaysOnTop: event.target.checked })} className="widget-control h-4 w-4" />
+    </label>
+    <label className="widget-surface flex items-center justify-between gap-3 rounded-md border border-slate-800 bg-slate-950 px-3 py-3 text-sm text-slate-300">
+      <span className="widget-content"><span className="block font-medium">Minimize to system tray</span><span className="mt-1 block text-xs text-slate-500">Keep AI Bucket running without a taskbar window</span></span>
+      <input type="checkbox" checked={settings.minimizeToTray} onChange={(event) => onSaveSettings({ minimizeToTray: event.target.checked })} className="widget-control h-4 w-4" />
     </label>
   </div>;
 }

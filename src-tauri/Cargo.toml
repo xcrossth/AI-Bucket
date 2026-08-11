@@ -18,13 +18,17 @@ aes-gcm = "0.10.3"
 base64 = "0.22.1"
 chrono = { version = "0.4.38", features = ["serde"] }
 reqwest = { version = "0.12.9", default-features = false, features = ["json", "rustls-tls"] }
+rand = "0.8.5"
 rusqlite = { version = "0.32.1", features = ["bundled"] }
 serde = { version = "1.0.215", features = ["derive"] }
 serde_json = "1.0.133"
 sha2 = "0.10.8"
-tauri = { version = "2.1.1", features = ["image-png"] }
+tauri = { version = "2.1.1", features = ["image-png", "tray-icon"] }
 tauri-plugin-notification = "2.0.1"
+tauri-plugin-opener = "2"
 tauri-plugin-window-state = "2"
+tokio = { version = "1", features = ["sync"] }
+url = "2.5"
 tauri-winrt-notification = "0.7.3"
 windows-registry = "0.5.0"
-windows-sys = { version = "0.59.0", features = ["Win32_Foundation", "Win32_Security_Cryptography"] }
+windows-sys = { version = "0.59.0", features = ["Win32_Foundation", "Win32_Security_Cryptography", "Win32_Storage_FileSystem"] }
