@@ -8,6 +8,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     sync::{
+        atomic::{AtomicBool, Ordering},
         mpsc::{self, SyncSender},
         Arc, Mutex,
     },
@@ -19,6 +20,8 @@ use chrono::{DateTime, Utc};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use tauri::{
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Manager, PhysicalPosition, PhysicalSize, Position, Size, State, WebviewWindow,
     WindowEvent,
 };
@@ -33,6 +36,7 @@ use windows_registry::CURRENT_USER;
 
 #[cfg(windows)]
 const WINDOWS_NOTIFICATION_APP_ID: &str = "com.local.ai-bucket.notification";
+const TRAY_ID: &str = "ai-bucket-tray";
 
 use models::{
     AppSettings, DashboardState, ProviderConfig, ProviderSnapshot, SettingsPatch, PROVIDER_IDS,
@@ -49,6 +53,9 @@ struct AppState {
     notified_usage: Mutex<HashMap<(i64, String), u32>>,
     layouts_path: PathBuf,
     window_mode: Arc<Mutex<String>>,
+    minimize_to_tray: Arc<AtomicBool>,
+    claude_oauth_sessions: Mutex<HashMap<i64, providers::claude::ClaudeOAuthPending>>,
+    claude_oauth_locks: Mutex<HashMap<i64, Arc<tokio::sync::Mutex<()>>>>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -217,6 +224,43 @@ fn apply_window_mode(
     restore_mode_layout(window, layouts_path, mode)
 }
 
+fn show_main_window(app: &AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Main window is unavailable".to_string())?;
+    window.unminimize().map_err(|error| error.to_string())?;
+    window.show().map_err(|error| error.to_string())?;
+    window.set_focus().map_err(|error| error.to_string())
+}
+
+fn toggle_main_window(app: &AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Main window is unavailable".to_string())?;
+    let visible = window.is_visible().map_err(|error| error.to_string())?;
+    let minimized = window.is_minimized().map_err(|error| error.to_string())?;
+    if visible && !minimized {
+        let state = app.state::<AppState>();
+        persist_current_window(app, &state)?;
+        window.hide().map_err(|error| error.to_string())
+    } else {
+        show_main_window(app)
+    }
+}
+
+fn persist_current_window(app: &AppHandle, state: &AppState) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("main") {
+        let mode = state
+            .window_mode
+            .lock()
+            .map_err(|_| "Failed to lock window mode".to_string())?
+            .clone();
+        save_mode_layout(&window, &state.layouts_path, &mode)?;
+        let _ = app.save_window_state(window_state_flags());
+    }
+    Ok(())
+}
+
 fn start_window_state_saver(
     app: AppHandle,
     window: WebviewWindow,
@@ -326,14 +370,22 @@ fn apply_codex_error(
     next
 }
 
-fn apply_claude_usage(snapshot: &ProviderSnapshot, usage: ClaudeUsage) -> ProviderSnapshot {
+fn apply_claude_usage(
+    snapshot: &ProviderSnapshot,
+    usage: ClaudeUsage,
+    fetch_mode: &str,
+) -> ProviderSnapshot {
     let mut next = snapshot.clone();
     next.plan_name = usage.plan;
     next.status = "ready".into();
-    next.fetch_mode = "local_credential".into();
+    next.fetch_mode = fetch_mode.into();
     next.limits = usage.limits;
     next.last_updated = now_iso();
-    next.notes = "Quota loaded from the local Claude Desktop session.".into();
+    next.notes = if fetch_mode == "oauth" {
+        "Quota loaded from this card's Claude OAuth session.".into()
+    } else {
+        "Quota loaded from the local Claude Desktop session.".into()
+    };
     next.configured = true;
     next
 }
@@ -344,13 +396,10 @@ fn apply_claude_error(
     message: String,
 ) -> ProviderSnapshot {
     let mut next = snapshot.clone();
-    next.status = if matches!(
-        kind,
-        ClaudeErrorKind::NeedsAuth | ClaudeErrorKind::CredentialLocked
-    ) {
-        "needs_auth".into()
-    } else {
-        "error".into()
+    next.status = match kind {
+        ClaudeErrorKind::NeedsAuth => "needs_auth".into(),
+        ClaudeErrorKind::CredentialLocked => "credential_locked".into(),
+        _ => "error".into(),
     };
     next.last_updated = now_iso();
     next.notes = message;
@@ -685,6 +734,44 @@ fn maybe_notify(
     Ok(())
 }
 
+async fn import_and_store_claude_local_session(
+    path: &PathBuf,
+    credentials_path: &Path,
+    account_id: i64,
+) -> Result<ClaudeUsage, providers::claude::ClaudeError> {
+    let (usage, credential) = providers::claude::collect_and_capture_local().await?;
+    let encoded = providers::claude::encode_local_credential_cache(&credential)?;
+    let conn = connect(path).map_err(|message| providers::claude::ClaudeError {
+        kind: ClaudeErrorKind::InvalidResponse,
+        message,
+    })?;
+    store::write_account_credential(&conn, credentials_path, account_id, &encoded).map_err(
+        |message| providers::claude::ClaudeError {
+            kind: ClaudeErrorKind::InvalidResponse,
+            message,
+        },
+    )?;
+    Ok(usage)
+}
+
+async fn collect_claude_local(
+    path: &PathBuf,
+    credentials_path: &Path,
+    account_id: i64,
+    stored_credential: &str,
+) -> Result<(ClaudeUsage, bool), providers::claude::ClaudeError> {
+    if let Ok(cached) = providers::claude::decode_local_credential_cache(stored_credential) {
+        match providers::claude::collect_cached_local(&cached).await {
+            Ok(usage) => return Ok((usage, true)),
+            Err(error) if error.kind != ClaudeErrorKind::NeedsAuth => return Err(error),
+            Err(_) => {}
+        }
+    }
+    import_and_store_claude_local_session(path, credentials_path, account_id)
+        .await
+        .map(|usage| (usage, false))
+}
+
 async fn refresh_one(
     app: &AppHandle,
     path: &PathBuf,
@@ -702,14 +789,86 @@ async fn refresh_one(
     let provider = config.provider.as_str();
 
     let next = if provider == "openai" {
-        match providers::codex::collect().await {
+        match providers::codex::collect(&config.local_config_path).await {
             Ok(usage) => apply_codex_usage(&current, usage),
             Err(error) => apply_codex_error(&current, error.kind, error.message),
         }
     } else if provider == "claude" {
-        match providers::claude::collect().await {
-            Ok(usage) => apply_claude_usage(&current, usage),
-            Err(error) => apply_claude_error(&current, error.kind, error.message),
+        if config.auth_method == "oauth" {
+            let lock = {
+                let app_state = app.state::<AppState>();
+                let mut locks = app_state
+                    .claude_oauth_locks
+                    .lock()
+                    .map_err(|_| "Failed to lock Claude OAuth refresh state".to_string())?;
+                locks
+                    .entry(account_id)
+                    .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+                    .clone()
+            };
+            let _guard = lock.lock().await;
+            let result = async {
+                let mut credential = providers::claude::decode_oauth_credential(&config.api_key)?;
+                if providers::claude::credential_needs_refresh(&credential) {
+                    credential = providers::claude::refresh_oauth_credential(&credential).await?;
+                    let encoded = providers::claude::encode_oauth_credential(&credential)?;
+                    let conn = connect(path).map_err(|message| providers::claude::ClaudeError {
+                        kind: ClaudeErrorKind::InvalidResponse,
+                        message,
+                    })?;
+                    store::write_account_credential(&conn, credentials_path, account_id, &encoded)
+                        .map_err(|message| providers::claude::ClaudeError {
+                            kind: ClaudeErrorKind::InvalidResponse,
+                            message,
+                        })?;
+                }
+                match providers::claude::collect_oauth(&credential).await {
+                    Ok(usage) => Ok(usage),
+                    Err(error) if error.kind == ClaudeErrorKind::NeedsAuth => {
+                        let refreshed =
+                            providers::claude::refresh_oauth_credential(&credential).await?;
+                        let encoded = providers::claude::encode_oauth_credential(&refreshed)?;
+                        let conn =
+                            connect(path).map_err(|message| providers::claude::ClaudeError {
+                                kind: ClaudeErrorKind::InvalidResponse,
+                                message,
+                            })?;
+                        store::write_account_credential(
+                            &conn,
+                            credentials_path,
+                            account_id,
+                            &encoded,
+                        )
+                        .map_err(|message| {
+                            providers::claude::ClaudeError {
+                                kind: ClaudeErrorKind::InvalidResponse,
+                                message,
+                            }
+                        })?;
+                        providers::claude::collect_oauth(&refreshed).await
+                    }
+                    Err(error) => Err(error),
+                }
+            }
+            .await;
+            match result {
+                Ok(usage) => apply_claude_usage(&current, usage, "oauth"),
+                Err(error) => apply_claude_error(&current, error.kind, error.message),
+            }
+        } else {
+            match collect_claude_local(path, credentials_path, account_id, &config.api_key).await {
+                Ok((usage, used_cache)) => {
+                    let mut next = apply_claude_usage(&current, usage, "local_credential");
+                    next.notes = if used_cache {
+                        "Quota loaded from the encrypted Claude Desktop session cache.".into()
+                    } else {
+                        "Claude Desktop session imported, verified, and encrypted for future refreshes."
+                            .into()
+                    };
+                    next
+                }
+                Err(error) => apply_claude_error(&current, error.kind, error.message),
+            }
         }
     } else if provider == "google" {
         match providers::antigravity::collect().await {
@@ -792,7 +951,7 @@ async fn refresh_all_providers(
 #[tauri::command]
 fn save_provider_config(
     state: State<AppState>,
-    config: ProviderConfig,
+    mut config: ProviderConfig,
 ) -> Result<DashboardState, String> {
     if !PROVIDER_IDS.contains(&config.provider.as_str()) {
         return Err("Provider not found".into());
@@ -801,12 +960,20 @@ fn save_provider_config(
         return Err("Custom account name must be 80 characters or fewer".into());
     }
     let supported_auth = match config.provider.as_str() {
-        "openai" | "claude" | "google" => config.auth_method == "local_credential",
+        "openai" | "google" => config.auth_method == "local_credential",
+        "claude" => matches!(config.auth_method.as_str(), "local_credential" | "oauth"),
         "minimax" | "glm" => config.auth_method == "api_key",
         _ => false,
     };
     if !supported_auth {
         return Err("This authentication method is not available for the provider yet".into());
+    }
+    if config.provider == "openai" && config.auth_method == "local_credential" {
+        config.local_config_path = config.local_config_path.trim().to_string();
+        providers::codex::validate_home(&config.local_config_path)
+            .map_err(|error| error.message)?;
+    } else {
+        config.local_config_path.clear();
     }
     let path = db_path(&state)?;
     let credentials_path = credential_dir(&state)?;
@@ -841,6 +1008,89 @@ fn save_provider_config(
         snapshot.last_updated = now_iso();
         store::insert_snapshot(&conn, &snapshot)?;
     }
+    store::load_dashboard(&conn, &credentials_path)
+}
+
+#[tauri::command]
+fn begin_claude_oauth(
+    state: State<AppState>,
+    account_id: i64,
+) -> Result<providers::claude::ClaudeOAuthStart, String> {
+    let path = db_path(&state)?;
+    let credentials_path = credential_dir(&state)?;
+    let conn = connect(&path)?;
+    let config = store::config_for_account(&conn, &credentials_path, account_id)?;
+    if config.provider != "claude" || config.auth_method != "oauth" {
+        return Err("Select Claude OAuth for this account before signing in.".into());
+    }
+    let (pending, start) = providers::claude::begin_oauth().map_err(|error| error.message)?;
+    state
+        .claude_oauth_sessions
+        .lock()
+        .map_err(|_| "Failed to lock Claude OAuth state".to_string())?
+        .insert(account_id, pending);
+    Ok(start)
+}
+
+#[tauri::command]
+async fn complete_claude_oauth(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    account_id: i64,
+    authorization_code: String,
+) -> Result<DashboardState, String> {
+    let pending = state
+        .claude_oauth_sessions
+        .lock()
+        .map_err(|_| "Failed to lock Claude OAuth state".to_string())?
+        .get(&account_id)
+        .cloned()
+        .ok_or_else(|| {
+            "Start Claude sign-in again before entering the authorization code.".to_string()
+        })?;
+    let credential = providers::claude::exchange_oauth_code(&pending, &authorization_code)
+        .await
+        .map_err(|error| error.message)?;
+    let path = db_path(&state)?;
+    let credentials_path = credential_dir(&state)?;
+    let conn = connect(&path)?;
+    let config = store::config_for_account(&conn, &credentials_path, account_id)?;
+    if config.provider != "claude" || config.auth_method != "oauth" {
+        return Err("This account is no longer configured for Claude OAuth.".into());
+    }
+    if let Some(account_uuid) = credential.account_uuid.as_deref() {
+        for other in store::load_configs(&conn, &credentials_path)? {
+            if other.account_id == account_id
+                || other.provider != "claude"
+                || other.auth_method != "oauth"
+            {
+                continue;
+            }
+            let stored = store::config_for_account(&conn, &credentials_path, other.account_id)?;
+            if providers::claude::decode_oauth_credential(&stored.api_key)
+                .ok()
+                .and_then(|item| item.account_uuid)
+                .as_deref()
+                == Some(account_uuid)
+            {
+                return Err(format!(
+                    "This Claude account is already connected to '{}'.",
+                    other.custom_name
+                ));
+            }
+        }
+    }
+    let encoded =
+        providers::claude::encode_oauth_credential(&credential).map_err(|error| error.message)?;
+    store::write_account_credential(&conn, &credentials_path, account_id, &encoded)?;
+    drop(conn);
+    state
+        .claude_oauth_sessions
+        .lock()
+        .map_err(|_| "Failed to lock Claude OAuth state".to_string())?
+        .remove(&account_id);
+    refresh_one(&app, &path, &credentials_path, account_id).await?;
+    let conn = connect(&path)?;
     store::load_dashboard(&conn, &credentials_path)
 }
 
@@ -974,8 +1224,16 @@ fn save_app_settings(
         widget_always_on_top: patch
             .widget_always_on_top
             .unwrap_or(current.widget_always_on_top),
+        minimize_to_tray: patch.minimize_to_tray.unwrap_or(current.minimize_to_tray),
     };
     store::save_settings(&conn, &next)?;
+    state
+        .minimize_to_tray
+        .store(next.minimize_to_tray, Ordering::Relaxed);
+    if let Some(tray) = app.tray_by_id(TRAY_ID) {
+        tray.set_visible(next.minimize_to_tray)
+            .map_err(|error| error.to_string())?;
+    }
     if let Some(window) = app.get_webview_window("main") {
         let previous_mode = state
             .window_mode
@@ -1012,16 +1270,21 @@ fn start_window_drag(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn shutdown_app(app: AppHandle, state: State<AppState>) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("main") {
-        let mode = state
-            .window_mode
-            .lock()
-            .map_err(|_| "Failed to lock window mode".to_string())?
-            .clone();
-        save_mode_layout(&window, &state.layouts_path, &mode)?;
-        let _ = app.save_window_state(window_state_flags());
+fn minimize_window(app: AppHandle, state: State<AppState>) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Main window is unavailable".to_string())?;
+    persist_current_window(&app, &state)?;
+    if state.minimize_to_tray.load(Ordering::Relaxed) {
+        window.hide().map_err(|error| error.to_string())
+    } else {
+        window.minimize().map_err(|error| error.to_string())
     }
+}
+
+#[tauri::command]
+fn shutdown_app(app: AppHandle, state: State<AppState>) -> Result<(), String> {
+    persist_current_window(&app, &state)?;
     app.exit(0);
     Ok(())
 }
@@ -1036,6 +1299,8 @@ pub fn run() {
     let window_state_flags = window_state_flags();
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(
             tauri_plugin_window_state::Builder::default()
                 .with_state_flags(window_state_flags)
@@ -1075,16 +1340,53 @@ pub fn run() {
             let settings = store::load_settings(&conn)?;
             let layouts_path = app_dir.join("window-layouts.json");
             let window_mode = Arc::new(Mutex::new(settings.window_mode.clone()));
+            let minimize_to_tray = Arc::new(AtomicBool::new(settings.minimize_to_tray));
             app.manage(AppState {
                 db_path: Mutex::new(db_path),
                 credential_dir: Mutex::new(credential_dir),
                 notified_usage: Mutex::new(HashMap::new()),
                 layouts_path: layouts_path.clone(),
                 window_mode: window_mode.clone(),
+                minimize_to_tray: minimize_to_tray.clone(),
+                claude_oauth_sessions: Mutex::new(HashMap::new()),
+                claude_oauth_locks: Mutex::new(HashMap::new()),
             });
 
             let window_icon =
                 tauri::image::Image::from_bytes(include_bytes!("../icons/128x128@2x.png"))?;
+            let show_item = MenuItem::with_id(app, "show", "Show AI Bucket", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", "Quit AI Bucket", true, None::<&str>)?;
+            let tray_menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+            let tray = TrayIconBuilder::with_id(TRAY_ID)
+                .icon(window_icon.clone())
+                .tooltip("AI Bucket")
+                .menu(&tray_menu)
+                .show_menu_on_left_click(false)
+                .on_menu_event(|app, event| match event.id().as_ref() {
+                    "show" => {
+                        let _ = show_main_window(app);
+                    }
+                    "quit" => {
+                        let state = app.state::<AppState>();
+                        let _ = persist_current_window(app, &state);
+                        app.exit(0);
+                    }
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if matches!(
+                        event,
+                        TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        }
+                    ) {
+                        let _ = toggle_main_window(tray.app_handle());
+                    }
+                })
+                .build(app)?;
+            tray.set_visible(settings.minimize_to_tray)?;
             if let Some(window) = app.get_webview_window("main") {
                 window.set_icon(window_icon)?;
                 apply_window_mode(
@@ -1101,7 +1403,16 @@ pub fn run() {
                     window_mode,
                 );
                 let save_after_change = save_window_state.clone();
+                let window_for_events = window.clone();
+                let minimize_for_events = minimize_to_tray;
                 window.on_window_event(move |event| {
+                    let minimized = window_for_events.is_minimized().unwrap_or(false);
+                    if minimized {
+                        if minimize_for_events.load(Ordering::Relaxed) {
+                            let _ = window_for_events.hide();
+                        }
+                        return;
+                    }
                     if matches!(event, WindowEvent::Moved(_) | WindowEvent::Resized(_)) {
                         let _ = save_after_change.try_send(());
                     }
@@ -1131,11 +1442,14 @@ pub fn run() {
             refresh_provider,
             refresh_all_providers,
             save_provider_config,
+            begin_claude_oauth,
+            complete_claude_oauth,
             reorder_provider_accounts,
             delete_provider_account,
             test_provider_alert,
             save_app_settings,
             start_window_drag,
+            minimize_window,
             shutdown_app
         ])
         .run(tauri::generate_context!())

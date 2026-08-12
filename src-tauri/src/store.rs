@@ -23,6 +23,7 @@ fn default_settings() -> AppSettings {
         widget_opacity: 60,
         foreground_opacity_boost: 20,
         widget_always_on_top: true,
+        minimize_to_tray: false,
     }
 }
 
@@ -34,7 +35,9 @@ fn default_configs() -> Vec<ProviderConfig> {
             custom_name: String::new(),
             auth_method: "local_credential".into(),
             api_key: String::new(),
+            credential_configured: false,
             base_url: "https://chatgpt.com/backend-api/wham/usage".into(),
+            local_config_path: String::new(),
             enabled: true,
             threshold_alert_enabled: true,
             reset_alert_enabled: true,
@@ -47,7 +50,9 @@ fn default_configs() -> Vec<ProviderConfig> {
             custom_name: String::new(),
             auth_method: "local_credential".into(),
             api_key: String::new(),
+            credential_configured: false,
             base_url: "https://claude.ai/api/organizations/{org_id}/usage".into(),
+            local_config_path: String::new(),
             enabled: true,
             threshold_alert_enabled: true,
             reset_alert_enabled: true,
@@ -60,7 +65,9 @@ fn default_configs() -> Vec<ProviderConfig> {
             custom_name: String::new(),
             auth_method: "local_credential".into(),
             api_key: String::new(),
+            credential_configured: false,
             base_url: "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota".into(),
+            local_config_path: String::new(),
             enabled: true,
             threshold_alert_enabled: true,
             reset_alert_enabled: true,
@@ -73,7 +80,9 @@ fn default_configs() -> Vec<ProviderConfig> {
             custom_name: String::new(),
             auth_method: "api_key".into(),
             api_key: String::new(),
+            credential_configured: false,
             base_url: "https://www.minimax.io/v1/token_plan/remains".into(),
+            local_config_path: String::new(),
             enabled: true,
             threshold_alert_enabled: true,
             reset_alert_enabled: true,
@@ -86,7 +95,9 @@ fn default_configs() -> Vec<ProviderConfig> {
             custom_name: String::new(),
             auth_method: "api_key".into(),
             api_key: String::new(),
+            credential_configured: false,
             base_url: "https://api.z.ai/api/monitor/usage/quota/limit".into(),
+            local_config_path: String::new(),
             enabled: true,
             threshold_alert_enabled: true,
             reset_alert_enabled: true,
@@ -211,6 +222,7 @@ pub fn init_db(
             auth_method TEXT NOT NULL,
             credential_ref TEXT NOT NULL DEFAULT '',
             base_url TEXT NOT NULL,
+            local_config_path TEXT NOT NULL DEFAULT '',
             enabled INTEGER NOT NULL DEFAULT 1,
             threshold_alert_enabled INTEGER NOT NULL DEFAULT 1,
             reset_alert_enabled INTEGER NOT NULL DEFAULT 1,
@@ -292,6 +304,10 @@ pub fn init_db(
         "ALTER TABLE app_settings ADD COLUMN widget_always_on_top INTEGER NOT NULL DEFAULT 1",
         [],
     );
+    let _ = conn.execute(
+        "ALTER TABLE app_settings ADD COLUMN minimize_to_tray INTEGER NOT NULL DEFAULT 0",
+        [],
+    );
     let registered_new_widget_defaults = conn
         .execute(
             "INSERT OR IGNORE INTO app_migrations (migration_key) VALUES ('widget-defaults-60-20-on')",
@@ -319,6 +335,10 @@ pub fn init_db(
     );
     let _ = conn.execute(
         "ALTER TABLE provider_accounts ADD COLUMN reset_alert_enabled INTEGER NOT NULL DEFAULT 1",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE provider_accounts ADD COLUMN local_config_path TEXT NOT NULL DEFAULT ''",
         [],
     );
 
@@ -350,8 +370,9 @@ pub fn init_db(
         "INSERT OR IGNORE INTO app_settings
          (id, auto_refresh_enabled, refresh_interval_minutes, notification_threshold,
           color_theme, size_theme, antigravity_two_column_quota, notifications_enabled,
-          window_mode, widget_opacity, foreground_opacity_boost, widget_always_on_top)
-         VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+          window_mode, widget_opacity, foreground_opacity_boost, widget_always_on_top,
+          minimize_to_tray)
+         VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
         params![
             settings.auto_refresh_enabled as i64,
             settings.refresh_interval_minutes,
@@ -363,7 +384,8 @@ pub fn init_db(
             settings.window_mode,
             settings.widget_opacity,
             settings.foreground_opacity_boost,
-            settings.widget_always_on_top as i64
+            settings.widget_always_on_top as i64,
+            settings.minimize_to_tray as i64
         ],
     )
     .map_err(|error| error.to_string())?;
@@ -558,7 +580,8 @@ pub fn load_settings(conn: &Connection) -> Result<AppSettings, String> {
     conn.query_row(
         "SELECT auto_refresh_enabled, refresh_interval_minutes, notification_threshold,
                 color_theme, size_theme, antigravity_two_column_quota, notifications_enabled,
-                window_mode, widget_opacity, foreground_opacity_boost, widget_always_on_top
+                window_mode, widget_opacity, foreground_opacity_boost, widget_always_on_top,
+                minimize_to_tray
          FROM app_settings WHERE id = 1",
         [],
         |row| {
@@ -574,6 +597,7 @@ pub fn load_settings(conn: &Connection) -> Result<AppSettings, String> {
                 widget_opacity: row.get(8)?,
                 foreground_opacity_boost: row.get(9)?,
                 widget_always_on_top: row.get::<_, i64>(10)? != 0,
+                minimize_to_tray: row.get::<_, i64>(11)? != 0,
             })
         },
     )
@@ -587,7 +611,7 @@ pub fn save_settings(conn: &Connection, settings: &AppSettings) -> Result<(), St
          color_theme = ?4, size_theme = ?5,
          antigravity_two_column_quota = ?6, notifications_enabled = ?7,
          window_mode = ?8, widget_opacity = ?9, foreground_opacity_boost = ?10,
-         widget_always_on_top = ?11 WHERE id = 1",
+         widget_always_on_top = ?11, minimize_to_tray = ?12 WHERE id = 1",
         params![
             settings.auto_refresh_enabled as i64,
             settings.refresh_interval_minutes,
@@ -599,7 +623,8 @@ pub fn save_settings(conn: &Connection, settings: &AppSettings) -> Result<(), St
             settings.window_mode,
             settings.widget_opacity,
             settings.foreground_opacity_boost,
-            settings.widget_always_on_top as i64
+            settings.widget_always_on_top as i64,
+            settings.minimize_to_tray as i64
         ],
     )
     .map_err(|error| error.to_string())?;
@@ -612,7 +637,7 @@ pub fn load_configs(
 ) -> Result<Vec<ProviderConfig>, String> {
     let mut statement = conn
         .prepare(
-            "SELECT id, provider, custom_name, auth_method, base_url, enabled,
+            "SELECT id, provider, custom_name, auth_method, base_url, local_config_path, enabled,
                     threshold_alert_enabled, reset_alert_enabled, visible, sort_order
              FROM provider_accounts ORDER BY sort_order, id",
         )
@@ -625,12 +650,14 @@ pub fn load_configs(
                 custom_name: row.get(2)?,
                 auth_method: row.get(3)?,
                 api_key: String::new(),
+                credential_configured: false,
                 base_url: row.get(4)?,
-                enabled: row.get::<_, i64>(5)? != 0,
-                threshold_alert_enabled: row.get::<_, i64>(6)? != 0,
-                reset_alert_enabled: row.get::<_, i64>(7)? != 0,
-                visible: row.get::<_, i64>(8)? != 0,
-                sort_order: row.get(9)?,
+                local_config_path: row.get(5)?,
+                enabled: row.get::<_, i64>(6)? != 0,
+                threshold_alert_enabled: row.get::<_, i64>(7)? != 0,
+                reset_alert_enabled: row.get::<_, i64>(8)? != 0,
+                visible: row.get::<_, i64>(9)? != 0,
+                sort_order: row.get(10)?,
             })
         })
         .map_err(|error| error.to_string())?;
@@ -638,7 +665,9 @@ pub fn load_configs(
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| error.to_string())?;
     for config in &mut configs {
-        config.api_key = credentials::mask(&credentials::read(credential_dir, config.account_id)?);
+        let credential = credentials::read(credential_dir, config.account_id)?;
+        config.credential_configured = !credential.is_empty();
+        config.api_key = credentials::mask(&credential);
     }
     Ok(configs)
 }
@@ -649,7 +678,7 @@ pub fn config_for_account(
     account_id: i64,
 ) -> Result<ProviderConfig, String> {
     conn.query_row(
-        "SELECT id, provider, custom_name, auth_method, base_url, enabled,
+        "SELECT id, provider, custom_name, auth_method, base_url, local_config_path, enabled,
                 threshold_alert_enabled, reset_alert_enabled, visible, sort_order
          FROM provider_accounts WHERE id = ?1",
         [account_id],
@@ -660,20 +689,45 @@ pub fn config_for_account(
                 custom_name: row.get(2)?,
                 auth_method: row.get(3)?,
                 api_key: String::new(),
+                credential_configured: false,
                 base_url: row.get(4)?,
-                enabled: row.get::<_, i64>(5)? != 0,
-                threshold_alert_enabled: row.get::<_, i64>(6)? != 0,
-                reset_alert_enabled: row.get::<_, i64>(7)? != 0,
-                visible: row.get::<_, i64>(8)? != 0,
-                sort_order: row.get(9)?,
+                local_config_path: row.get(5)?,
+                enabled: row.get::<_, i64>(6)? != 0,
+                threshold_alert_enabled: row.get::<_, i64>(7)? != 0,
+                reset_alert_enabled: row.get::<_, i64>(8)? != 0,
+                visible: row.get::<_, i64>(9)? != 0,
+                sort_order: row.get(10)?,
             })
         },
     )
     .map_err(|error| error.to_string())
     .and_then(|mut config| {
         config.api_key = credentials::read(credential_dir, account_id)?;
+        config.credential_configured = !config.api_key.is_empty();
         Ok(config)
     })
+}
+
+pub fn write_account_credential(
+    conn: &Connection,
+    credential_dir: &Path,
+    account_id: i64,
+    value: &str,
+) -> Result<(), String> {
+    credentials::write(credential_dir, account_id, value)?;
+    conn.execute(
+        "UPDATE provider_accounts SET credential_ref = ?1 WHERE id = ?2",
+        params![
+            if value.is_empty() {
+                String::new()
+            } else {
+                format!("provider-{account_id}.credential")
+            },
+            account_id
+        ],
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(())
 }
 
 pub fn save_config(
@@ -681,6 +735,18 @@ pub fn save_config(
     credential_dir: &Path,
     config: &ProviderConfig,
 ) -> Result<i64, String> {
+    let previous_auth_method = if config.account_id == 0 {
+        None
+    } else {
+        Some(
+            conn.query_row(
+                "SELECT auth_method FROM provider_accounts WHERE id = ?1",
+                [config.account_id],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|error| error.to_string())?,
+        )
+    };
     let account_id = if config.account_id == 0 {
         let sort_order: i64 = conn
             .query_row(
@@ -691,14 +757,15 @@ pub fn save_config(
             .map_err(|error| error.to_string())?;
         conn.execute(
             "INSERT INTO provider_accounts
-             (provider, custom_name, auth_method, base_url, enabled,
+             (provider, custom_name, auth_method, base_url, local_config_path, enabled,
               threshold_alert_enabled, reset_alert_enabled, visible, sort_order)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 config.provider,
                 config.custom_name,
                 config.auth_method,
                 config.base_url,
+                config.local_config_path,
                 config.enabled as i64,
                 config.threshold_alert_enabled as i64,
                 config.reset_alert_enabled as i64,
@@ -711,12 +778,13 @@ pub fn save_config(
     } else {
         conn.execute(
             "UPDATE provider_accounts SET custom_name = ?1, auth_method = ?2, base_url = ?3,
-             enabled = ?4, threshold_alert_enabled = ?5, reset_alert_enabled = ?6,
-             visible = ?7 WHERE id = ?8",
+             local_config_path = ?4, enabled = ?5, threshold_alert_enabled = ?6,
+             reset_alert_enabled = ?7, visible = ?8 WHERE id = ?9",
             params![
                 config.custom_name,
                 config.auth_method,
                 config.base_url,
+                config.local_config_path,
                 config.enabled as i64,
                 config.threshold_alert_enabled as i64,
                 config.reset_alert_enabled as i64,
@@ -727,20 +795,16 @@ pub fn save_config(
         .map_err(|error| error.to_string())?;
         config.account_id
     };
-    if !credentials::is_masked(&config.api_key) {
-        credentials::write(credential_dir, account_id, config.api_key.trim())?;
-        conn.execute(
-            "UPDATE provider_accounts SET credential_ref = ?1 WHERE id = ?2",
-            params![
-                if config.api_key.trim().is_empty() {
-                    String::new()
-                } else {
-                    format!("provider-{account_id}.credential")
-                },
-                account_id
-            ],
-        )
-        .map_err(|error| error.to_string())?;
+    let auth_method_changed = previous_auth_method
+        .as_deref()
+        .is_some_and(|previous| previous != config.auth_method);
+    if auth_method_changed {
+        write_account_credential(conn, credential_dir, account_id, "")?;
+    } else if config.auth_method == "local_credential" {
+        // Local-session credentials are imported and verified by the Rust collector. A stale
+        // settings form must never overwrite that cache with its empty, display-only field.
+    } else if !credentials::is_masked(&config.api_key) {
+        write_account_credential(conn, credential_dir, account_id, config.api_key.trim())?;
     }
     Ok(account_id)
 }
@@ -892,6 +956,7 @@ mod tests {
         assert_eq!(settings.widget_opacity, 60);
         assert_eq!(settings.foreground_opacity_boost, 20);
         assert!(settings.widget_always_on_top);
+        assert!(!settings.minimize_to_tray);
     }
 
     #[test]
@@ -928,6 +993,7 @@ mod tests {
         assert_eq!(migrated.widget_opacity, 60);
         assert_eq!(migrated.foreground_opacity_boost, 20);
         assert!(migrated.widget_always_on_top);
+        assert!(!migrated.minimize_to_tray);
 
         let mut later_choice = migrated;
         later_choice.widget_opacity = 90;
@@ -940,5 +1006,97 @@ mod tests {
         assert_eq!(preserved.widget_opacity, 90);
         assert_eq!(preserved.foreground_opacity_boost, 0);
         assert!(!preserved.widget_always_on_top);
+    }
+
+    #[test]
+    fn saving_local_account_settings_preserves_collector_owned_credential() {
+        let connection = Connection::open_in_memory().expect("in-memory database");
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        let credential_dir = std::env::temp_dir().join(format!(
+            "ai-bucket-local-credential-test-{}-{nonce}",
+            std::process::id()
+        ));
+        init_db(
+            &connection,
+            &credential_dir,
+            "2026-07-16T00:00:00Z",
+            &["claude".into()],
+        )
+        .expect("database bootstrap");
+        let mut config = load_configs(&connection, &credential_dir)
+            .expect("load configs")
+            .into_iter()
+            .find(|config| config.provider == "claude")
+            .expect("Claude config");
+        write_account_credential(
+            &connection,
+            &credential_dir,
+            config.account_id,
+            "verified-local-cache",
+        )
+        .expect("seed collector credential");
+
+        config.custom_name = "Renamed local account".into();
+        config.api_key.clear();
+        save_config(&connection, &credential_dir, &config).expect("save local settings");
+        assert_eq!(
+            credentials::read(&credential_dir, config.account_id).expect("read credential"),
+            "verified-local-cache"
+        );
+
+        config.auth_method = "oauth".into();
+        save_config(&connection, &credential_dir, &config).expect("change auth method");
+        assert!(credentials::read(&credential_dir, config.account_id)
+            .expect("read cleared credential")
+            .is_empty());
+        std::fs::remove_dir_all(&credential_dir).expect("remove credential directory");
+    }
+
+    #[test]
+    fn codex_accounts_preserve_independent_home_paths() {
+        let connection = Connection::open_in_memory().expect("in-memory database");
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        let credential_dir = std::env::temp_dir().join(format!(
+            "ai-bucket-codex-homes-test-{}-{nonce}",
+            std::process::id()
+        ));
+        init_db(&connection, &credential_dir, "2026-08-11T00:00:00Z", &[])
+            .expect("database bootstrap");
+
+        let mut primary = load_configs(&connection, &credential_dir)
+            .expect("load configs")
+            .into_iter()
+            .find(|config| config.provider == "openai")
+            .expect("default Codex config");
+        primary.custom_name = "Primary".into();
+        primary.local_config_path = r"C:\Users\Test\.codex".into();
+        save_config(&connection, &credential_dir, &primary).expect("save primary Codex account");
+
+        let mut secondary = primary.clone();
+        secondary.account_id = 0;
+        secondary.custom_name = "Secondary".into();
+        secondary.local_config_path = r"C:\Users\Test\.codex-acc2".into();
+        save_config(&connection, &credential_dir, &secondary)
+            .expect("save secondary Codex account");
+
+        let codex_configs = load_configs(&connection, &credential_dir)
+            .expect("reload configs")
+            .into_iter()
+            .filter(|config| config.provider == "openai")
+            .collect::<Vec<_>>();
+        assert_eq!(codex_configs.len(), 2);
+        assert_eq!(codex_configs[0].local_config_path, r"C:\Users\Test\.codex");
+        assert_eq!(
+            codex_configs[1].local_config_path,
+            r"C:\Users\Test\.codex-acc2"
+        );
+
+        let _ = std::fs::remove_dir_all(&credential_dir);
     }
 }

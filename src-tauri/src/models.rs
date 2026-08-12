@@ -69,8 +69,12 @@ pub struct ProviderConfig {
     pub auth_method: String,
     #[serde(rename = "apiKey")]
     pub api_key: String,
+    #[serde(rename = "credentialConfigured")]
+    pub credential_configured: bool,
     #[serde(rename = "baseUrl")]
     pub base_url: String,
+    #[serde(rename = "localConfigPath")]
+    pub local_config_path: String,
     pub enabled: bool,
     #[serde(rename = "thresholdAlertEnabled")]
     pub threshold_alert_enabled: bool,
@@ -105,6 +109,8 @@ pub struct AppSettings {
     pub foreground_opacity_boost: i64,
     #[serde(rename = "widgetAlwaysOnTop")]
     pub widget_always_on_top: bool,
+    #[serde(rename = "minimizeToTray")]
+    pub minimize_to_tray: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -139,6 +145,8 @@ pub struct SettingsPatch {
     pub foreground_opacity_boost: Option<i64>,
     #[serde(rename = "widgetAlwaysOnTop")]
     pub widget_always_on_top: Option<bool>,
+    #[serde(rename = "minimizeToTray")]
+    pub minimize_to_tray: Option<bool>,
 }
 
 pub fn provider_presentation(provider: &str) -> (&'static str, &'static str, &'static str) {

@@ -5,6 +5,7 @@ use windows_sys::{
     Win32::Security::Cryptography::{
         CryptProtectData, CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
     },
+    Win32::Storage::FileSystem::{MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH},
 };
 
 fn transform(data: &[u8], protect: bool) -> Result<Vec<u8>, String> {
@@ -62,7 +63,54 @@ pub fn write(root: &Path, account_id: i64, value: &str) -> Result<(), String> {
         return Ok(());
     }
     let protected = transform(value.as_bytes(), true)?;
-    fs::write(destination, protected).map_err(|error| error.to_string())
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    let temporary = root.join(format!(
+        ".provider-{account_id}.credential-{}-{nonce}.tmp",
+        std::process::id(),
+    ));
+    fs::write(&temporary, protected).map_err(|error| error.to_string())?;
+    atomic_replace(&temporary, &destination).inspect_err(|_| {
+        let _ = fs::remove_file(&temporary);
+    })
+}
+
+#[cfg(windows)]
+fn atomic_replace(source: &Path, destination: &Path) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+
+    let source_wide = source
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect::<Vec<_>>();
+    let destination_wide = destination
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect::<Vec<_>>();
+    let moved = unsafe {
+        MoveFileExW(
+            source_wide.as_ptr(),
+            destination_wide.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if moved == 0 {
+        Err(std::io::Error::last_os_error().to_string())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(not(windows))]
+fn atomic_replace(source: &Path, destination: &Path) -> Result<(), String> {
+    if destination.exists() {
+        fs::remove_file(destination).map_err(|error| error.to_string())?;
+    }
+    fs::rename(source, destination).map_err(|error| error.to_string())
 }
 
 pub fn read(root: &Path, account_id: i64) -> Result<String, String> {
