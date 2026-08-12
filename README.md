@@ -269,8 +269,8 @@ GitHub Actions validates every push and pull request. Pushing a version tag buil
 installer, creates a portable ZIP, and publishes both files to a GitHub Release:
 
 ```powershell
-git tag v0.1.4
-git push origin v0.1.4
+git tag v0.1.5
+git push origin v0.1.5
 ```
 
 Keep the tag aligned with the version in `package.json`, `src-tauri/Cargo.toml`, and
